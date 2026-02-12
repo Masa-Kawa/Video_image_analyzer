@@ -26,10 +26,10 @@ pip install -r requirements.txt
 |---|---|---|
 | ファイル名 | 種別 | 説明 |
 |---|---|---|
-| `{stem}_redlog.csv` | CSV | 赤色率ログ（0.2秒刻み） |
-| `{stem}_metrics.srt` | SRT | 赤色率・変化量の可視化字幕 |
+| `{stem}_events.jsonl` | JSONL | **イベント正本**（Single Source of Truth） |
 | `{stem}_bleed.srt` | SRT | 出血候補イベント（可視化・編集用） |
-| `{stem}_events.jsonl` | JSONL | イベント正本 |
+| `{stem}_metrics.srt` | SRT | 赤色率・変化量の可視化字幕 |
+| `{stem}_redlog.csv` | CSV | 赤色率ログ（時系列データの可視化用） |
 | `{stem}_cut.srt` | SRT | TransNetカット境界 |
 | `{stem}_merged.srt` | SRT | 統合SRT（Shotcut投入用） |
 
