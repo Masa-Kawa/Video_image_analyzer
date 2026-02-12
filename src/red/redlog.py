@@ -360,28 +360,7 @@ def analyze_video(
     # ===================== イベント抽出 =====================
     events = extract_bleed_events(times, smooth_deltas, thr, k_s, fps, smooth_s)
 
-    # ===================== SRT出力 =====================
-    srt_path = out_path / f"{stem}_bleed.srt"
-    with open(srt_path, "w", encoding="utf-8") as f:
-        for idx, ev in enumerate(events, start=1):
-            start_srt = format_srt_time(ev["start"])
-            end_srt = format_srt_time(ev["end"])
-            # JSON行は仕様準拠のフィールドのみ
-            json_line = json.dumps({
-                "type": ev["type"],
-                "metric": ev["metric"],
-                "thr": ev["thr"],
-                "k_s": ev["k_s"],
-                "smooth_s": ev["smooth_s"],
-                "delta_max": ev["delta_max"],
-            }, ensure_ascii=False)
-            f.write(f"{idx}\n")
-            f.write(f"{start_srt} --> {end_srt}\n")
-            f.write(f"[bleed] delta_over_threshold\n")
-            f.write(f"{json_line}\n")
-            f.write("\n")
-
-    # ===================== JSONL出力 =====================
+    # ===================== JSONL出力（正本） =====================
     jsonl_path = out_path / f"{stem}_events.jsonl"
     with open(jsonl_path, "w", encoding="utf-8") as f:
         for ev in events:
@@ -399,9 +378,18 @@ def analyze_video(
             }
             f.write(json.dumps(line, ensure_ascii=False) + "\n")
 
+    # ===================== SRT出力（JSONLから変換） =====================
+    from src.tools.jsonl_to_srt import convert as jsonl_to_srt_convert
+    srt_path = out_path / f"{stem}_bleed.srt"
+    jsonl_to_srt_convert(
+        in_jsonl=str(jsonl_path),
+        out_srt=str(srt_path),
+        event_type="bleed_candidate",
+    )
+
     print(f"CSV  : {csv_path}")
-    print(f"SRT  : {srt_path}")
-    print(f"JSONL: {jsonl_path}")
+    print(f"SRT  : {srt_path} （JSONLから変換）")
+    print(f"JSONL: {jsonl_path} （正本）")
     print(f"イベント数: {len(events)}")
 
     return {
