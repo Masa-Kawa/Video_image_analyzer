@@ -6,3 +6,35 @@ __pycache__/
 dist/
 build/
 .env
+venv/
+
+# 出力ファイル（動画解析結果）
+*.csv
+*.srt
+*.jsonl
+
+# 動画ファイル（サイズが大きいため）
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+
+# IDE設定
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb
+
+# カバレッジレポート
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
