@@ -2,6 +2,11 @@
 赤色解析モジュール（HSV / 5fps）
 
 腹腔鏡手術動画の赤色率をサンプリングし、出血候補イベントを検出する。
+
+2段階の処理:
+  Step 1 - record_timeseries(): 動画→CSV（赤色率の時系列記録）
+  Step 2 - annotate_bleed():    CSV→JSONL/SRT（閾値ベースの出血アノテーション）
+
 出力: CSV（赤色率ログ）、SRT（出血候補イベント）、JSONL（イベント正本）
 """
 
@@ -275,7 +280,7 @@ def iter_frames(video_path: str, fps: float):
 # メインパイプライン
 # ---------------------------------------------------------------------------
 
-def analyze_video(
+def record_timeseries(
     video_path: str,
     outdir: str,
     fps: float = 5.0,
@@ -284,11 +289,12 @@ def analyze_video(
     roi_margin: float = 0.08,
     no_roi: bool = False,
     smooth_s: float = 5.0,
-    thr: float = 0.03,
-    k_s: float = 3.0,
 ) -> dict:
     """
-    動画を解析し、CSV・SRT・JSONLを出力する。
+    Step 1: 動画をサンプリングしてCSVを出力する（時系列のみ）。
+
+    出血アノテーションは行わない。CSVを確認してから
+    annotate_bleed() で閾値を指定してイベント抽出を行う。
 
     Args:
         video_path: 入力動画ファイルパス
@@ -299,11 +305,9 @@ def analyze_video(
         roi_margin: 円形ROIマージン
         no_roi: TrueならROIを無効化
         smooth_s: 平滑化窓サイズ（秒）
-        thr: 出血候補閾値
-        k_s: 連続条件（秒）
 
     Returns:
-        出力ファイルパスの辞書
+        {"csv": CSVファイルパス}
     """
     out_path = Path(outdir)
     out_path.mkdir(parents=True, exist_ok=True)
@@ -357,6 +361,94 @@ def analyze_video(
                 reader_name,
             ])
 
+    print(f"CSV  : {csv_path}")
+    return {"csv": str(csv_path)}
+
+
+# ---------------------------------------------------------------------------
+# CSV読み込み
+# ---------------------------------------------------------------------------
+
+def read_redlog_csv(csv_path: str) -> dict:
+    """
+    赤色率ログCSVを読み込む。
+
+    Args:
+        csv_path: CSVファイルパス
+
+    Returns:
+        {"times": [...], "ratios": [...], "deltas": [...],
+         "smooth_deltas": [...], "reader": "...", "fps": float}
+    """
+    times: List[float] = []
+    ratios: List[float] = []
+    deltas: List[float] = []
+    smooth_deltas: List[float] = []
+    reader = "unknown"
+
+    with open(csv_path, "r", encoding="utf-8") as f:
+        reader_obj = csv.DictReader(f)
+        for row in reader_obj:
+            times.append(float(row["t_sec"]))
+            ratios.append(float(row["red_ratio"]))
+            deltas.append(float(row["delta"]))
+            smooth_deltas.append(float(row["smooth_delta"]))
+            reader = row.get("reader", "unknown")
+
+    # fpsの推定（2サンプル以上ある場合）
+    if len(times) >= 2:
+        fps = 1.0 / (times[1] - times[0])
+    else:
+        fps = 5.0
+
+    return {
+        "times": times,
+        "ratios": ratios,
+        "deltas": deltas,
+        "smooth_deltas": smooth_deltas,
+        "reader": reader,
+        "fps": fps,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 出血アノテーション
+# ---------------------------------------------------------------------------
+
+def annotate_bleed(
+    csv_path: str,
+    outdir: str,
+    thr: float = 0.03,
+    k_s: float = 3.0,
+    smooth_s: float = 5.0,
+) -> dict:
+    """
+    Step 2: CSVから閾値ベースで出血イベントを抽出し、JSONL/SRTを出力する。
+
+    record_timeseries() で出力したCSVと閾値を入力として使う。
+    閾値はCSVのデータを確認してから自由に変更可能。
+
+    Args:
+        csv_path: 入力CSVファイルパス（赤色率ログ）
+        outdir: 出力ディレクトリ
+        thr: 出血候補閾値
+        k_s: 連続条件（秒）
+        smooth_s: 平滑化窓サイズ（秒）。CSVのsmooth_deltaを使い、
+                  イベント抽出パラメータとしてのみ記録。
+
+    Returns:
+        {"jsonl": JSONLファイルパス, "srt": SRTファイルパス, "events": イベント数}
+    """
+    data = read_redlog_csv(csv_path)
+    times = data["times"]
+    smooth_deltas = data["smooth_deltas"]
+    fps = data["fps"]
+
+    out_path = Path(outdir)
+    out_path.mkdir(parents=True, exist_ok=True)
+
+    stem = Path(csv_path).stem.replace("_redlog", "")
+
     # ===================== イベント抽出 =====================
     events = extract_bleed_events(times, smooth_deltas, thr, k_s, fps, smooth_s)
 
@@ -387,17 +479,79 @@ def analyze_video(
         event_type="bleed_candidate",
     )
 
-    print(f"CSV  : {csv_path}")
-    print(f"SRT  : {srt_path} （JSONLから変換）")
     print(f"JSONL: {jsonl_path} （正本）")
-    print(f"イベント数: {len(events)}")
+    print(f"SRT  : {srt_path} （JSONLから変換）")
+    print(f"イベント数: {len(events)} （thr={thr}, k_s={k_s}）")
 
     return {
-        "csv": str(csv_path),
-        "srt": str(srt_path),
         "jsonl": str(jsonl_path),
+        "srt": str(srt_path),
         "events": len(events),
     }
+
+
+# ---------------------------------------------------------------------------
+# 一括実行（後方互換）
+# ---------------------------------------------------------------------------
+
+def analyze_video(
+    video_path: str,
+    outdir: str,
+    fps: float = 5.0,
+    s_min: int = 60,
+    v_min: int = 40,
+    roi_margin: float = 0.08,
+    no_roi: bool = False,
+    smooth_s: float = 5.0,
+    thr: float = 0.03,
+    k_s: float = 3.0,
+) -> dict:
+    """
+    動画を解析し、CSV・SRT・JSONLを出力する（2ステップの一括実行）。
+
+    内部で record_timeseries() → annotate_bleed() の順に実行する。
+    後方互換のために維持。
+
+    Args:
+        video_path: 入力動画ファイルパス
+        outdir: 出力ディレクトリ
+        fps: サンプリングFPS（デフォルト5）
+        s_min: HSV彩度最小値
+        v_min: HSV明度最小値
+        roi_margin: 円形ROIマージン
+        no_roi: TrueならROIを無効化
+        smooth_s: 平滑化窓サイズ（秒）
+        thr: 出血候補閾値
+        k_s: 連続条件（秒）
+
+    Returns:
+        出力ファイルパスの辞書
+    """
+    # Step 1: 時系列記録
+    result1 = record_timeseries(
+        video_path=video_path,
+        outdir=outdir,
+        fps=fps,
+        s_min=s_min,
+        v_min=v_min,
+        roi_margin=roi_margin,
+        no_roi=no_roi,
+        smooth_s=smooth_s,
+    )
+
+    if not result1:
+        return {}
+
+    # Step 2: 出血アノテーション
+    result2 = annotate_bleed(
+        csv_path=result1["csv"],
+        outdir=outdir,
+        thr=thr,
+        k_s=k_s,
+        smooth_s=smooth_s,
+    )
+
+    return {**result1, **result2}
 
 
 # ---------------------------------------------------------------------------
@@ -405,37 +559,109 @@ def analyze_video(
 # ---------------------------------------------------------------------------
 
 def main() -> int:
-    """コマンドラインエントリポイント"""
+    """コマンドラインエントリポイント（サブコマンド方式）"""
     parser = argparse.ArgumentParser(
         description="手術動画の赤色解析（HSV / 5fps）"
     )
-    parser.add_argument("--video", required=True, help="入力動画ファイルパス")
-    parser.add_argument("--outdir", required=True, help="出力ディレクトリ")
-    parser.add_argument("--fps", type=float, default=5.0, help="サンプリングFPS（デフォルト: 5）")
-    parser.add_argument("--s-min", type=int, default=60, help="HSV彩度最小値（デフォルト: 60）")
-    parser.add_argument("--v-min", type=int, default=40, help="HSV明度最小値（デフォルト: 40）")
-    parser.add_argument("--roi-margin", type=float, default=0.08, help="円形ROIマージン（デフォルト: 0.08）")
-    parser.add_argument("--no-roi", action="store_true", help="ROIを無効にする")
-    parser.add_argument("--smooth-s", type=float, default=5.0, help="平滑化窓（秒、デフォルト: 5）")
-    parser.add_argument("--thr", type=float, default=0.03, help="出血候補閾値（デフォルト: 0.03）")
-    parser.add_argument("--k-s", type=float, default=3.0, help="連続条件（秒、デフォルト: 3）")
+    subparsers = parser.add_subparsers(dest="command", help="実行コマンド")
+
+    # --- サブコマンド: timeseries ---
+    ts_parser = subparsers.add_parser(
+        "timeseries", help="Step 1: 時系列記録（動画→CSV）"
+    )
+    ts_parser.add_argument("--video", required=True, help="入力動画ファイルパス")
+    ts_parser.add_argument("--outdir", required=True, help="出力ディレクトリ")
+    ts_parser.add_argument("--fps", type=float, default=5.0,
+                           help="サンプリングFPS（デフォルト: 5）")
+    ts_parser.add_argument("--s-min", type=int, default=60,
+                           help="HSV彩度最小値（デフォルト: 60）")
+    ts_parser.add_argument("--v-min", type=int, default=40,
+                           help="HSV明度最小値（デフォルト: 40）")
+    ts_parser.add_argument("--roi-margin", type=float, default=0.08,
+                           help="円形ROIマージン（デフォルト: 0.08）")
+    ts_parser.add_argument("--no-roi", action="store_true",
+                           help="ROIを無効にする")
+    ts_parser.add_argument("--smooth-s", type=float, default=5.0,
+                           help="平滑化窓（秒、デフォルト: 5）")
+
+    # --- サブコマンド: annotate ---
+    ann_parser = subparsers.add_parser(
+        "annotate", help="Step 2: 出血アノテーション（CSV→JSONL/SRT）"
+    )
+    ann_parser.add_argument("--csv", required=True,
+                            help="入力CSVファイル（赤色率ログ）")
+    ann_parser.add_argument("--outdir", required=True, help="出力ディレクトリ")
+    ann_parser.add_argument("--thr", type=float, default=0.03,
+                            help="出血候補閾値（デフォルト: 0.03）")
+    ann_parser.add_argument("--k-s", type=float, default=3.0,
+                            help="連続条件（秒、デフォルト: 3）")
+    ann_parser.add_argument("--smooth-s", type=float, default=5.0,
+                            help="平滑化窓（秒、デフォルト: 5）")
+
+    # --- サブコマンド: analyze ---
+    ana_parser = subparsers.add_parser(
+        "analyze", help="一括実行（timeseries + annotate）"
+    )
+    ana_parser.add_argument("--video", required=True, help="入力動画ファイルパス")
+    ana_parser.add_argument("--outdir", required=True, help="出力ディレクトリ")
+    ana_parser.add_argument("--fps", type=float, default=5.0,
+                            help="サンプリングFPS（デフォルト: 5）")
+    ana_parser.add_argument("--s-min", type=int, default=60,
+                            help="HSV彩度最小値（デフォルト: 60）")
+    ana_parser.add_argument("--v-min", type=int, default=40,
+                            help="HSV明度最小値（デフォルト: 40）")
+    ana_parser.add_argument("--roi-margin", type=float, default=0.08,
+                            help="円形ROIマージン（デフォルト: 0.08）")
+    ana_parser.add_argument("--no-roi", action="store_true",
+                            help="ROIを無効にする")
+    ana_parser.add_argument("--smooth-s", type=float, default=5.0,
+                            help="平滑化窓（秒、デフォルト: 5）")
+    ana_parser.add_argument("--thr", type=float, default=0.03,
+                            help="出血候補閾値（デフォルト: 0.03）")
+    ana_parser.add_argument("--k-s", type=float, default=3.0,
+                            help="連続条件（秒、デフォルト: 3）")
 
     args = parser.parse_args()
 
-    analyze_video(
-        video_path=args.video,
-        outdir=args.outdir,
-        fps=args.fps,
-        s_min=args.s_min,
-        v_min=args.v_min,
-        roi_margin=args.roi_margin,
-        no_roi=args.no_roi,
-        smooth_s=args.smooth_s,
-        thr=args.thr,
-        k_s=args.k_s,
-    )
+    if args.command == "timeseries":
+        record_timeseries(
+            video_path=args.video,
+            outdir=args.outdir,
+            fps=args.fps,
+            s_min=args.s_min,
+            v_min=args.v_min,
+            roi_margin=args.roi_margin,
+            no_roi=args.no_roi,
+            smooth_s=args.smooth_s,
+        )
+    elif args.command == "annotate":
+        annotate_bleed(
+            csv_path=args.csv,
+            outdir=args.outdir,
+            thr=args.thr,
+            k_s=args.k_s,
+            smooth_s=args.smooth_s,
+        )
+    elif args.command == "analyze":
+        analyze_video(
+            video_path=args.video,
+            outdir=args.outdir,
+            fps=args.fps,
+            s_min=args.s_min,
+            v_min=args.v_min,
+            roi_margin=args.roi_margin,
+            no_roi=args.no_roi,
+            smooth_s=args.smooth_s,
+            thr=args.thr,
+            k_s=args.k_s,
+        )
+    else:
+        parser.print_help()
+        return 1
+
     return 0
 
 
 if __name__ == "__main__":
     sys.exit(main())
+

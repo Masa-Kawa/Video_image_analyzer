@@ -24,45 +24,79 @@ pip install -r requirements.txt
 
 | ファイル名 | 種別 | 説明 |
 |---|---|---|
+| ファイル名 | 種別 | 説明 |
+|---|---|---|
 | `{stem}_redlog.csv` | CSV | 赤色率ログ（0.2秒刻み） |
-| `{stem}_bleed.srt` | SRT | 出血候補イベント |
+| `{stem}_metrics.srt` | SRT | 赤色率・変化量の可視化字幕 |
+| `{stem}_bleed.srt` | SRT | 出血候補イベント（可視化・編集用） |
 | `{stem}_events.jsonl` | JSONL | イベント正本 |
 | `{stem}_cut.srt` | SRT | TransNetカット境界 |
 | `{stem}_merged.srt` | SRT | 統合SRT（Shotcut投入用） |
 
 ## 使い方
 
-### 1. 赤色解析
+### 1. 赤色解析（2段階プロセス）
+
+#### Step 1: 時系列記録
+
+動画から赤色率ログCSVを生成します。
 
 ```bash
-python -m src.red.redlog \
+python -m src.red.redlog timeseries \
     --video case001.mp4 \
     --outdir ./out
 ```
 
-**全パラメータ指定例**:
+#### Step 2: 可視化データの作成（オプション）
+
+CSVの数値をSRT字幕に変換し、動画上で確認できます。
 
 ```bash
-python -m src.red.redlog \
-    --video case001.mp4 \
-    --outdir ./out \
-    --fps 5 \
-    --s-min 60 --v-min 40 \
-    --roi-margin 0.08 \
-    --smooth-s 5 \
-    --thr 0.03 --k-s 3
+python -m src.tools.csv_to_srt \
+    --in-csv ./out/case001_redlog.csv \
+    --out-srt ./out/case001_metrics.srt
 ```
 
-| パラメータ | デフォルト | 説明 |
-|---|---|---|
-| `--fps` | 5 | サンプリングFPS |
-| `--s-min` | 60 | HSV彩度最小値 |
-| `--v-min` | 40 | HSV明度最小値 |
-| `--roi-margin` | 0.08 | 円形ROIマージン |
-| `--no-roi` | (無効) | ROIを無効にする |
-| `--smooth-s` | 5 | 平滑化窓（秒） |
-| `--thr` | 0.03 | 出血候補閾値 |
-| `--k-s` | 3 | 連続条件（秒） |
+#### Step 3: 出血アノテーション
+
+CSVと閾値を指定してイベントを抽出します。何度でも再実行可能です。
+
+```bash
+python -m src.red.redlog annotate \
+    --csv ./out/case001_redlog.csv \
+    --outdir ./out \
+    --thr 0.03
+```
+
+#### ※ 一括実行（従来互換）
+
+```bash
+python -m src.red.redlog analyze \
+    --video case001.mp4 \
+    --outdir ./out
+```
+
+### 2. イベントデータの相互変換（JSONL ⇔ SRT）
+
+手動編集を行う場合に使用します。
+
+#### JSONL → SRT
+
+```bash
+python -m src.tools.jsonl_to_srt \
+    --in-jsonl events.jsonl \
+    --out-srt bleed.srt
+```
+
+#### SRT → JSONL（編集反映）
+
+SRTファイル（Shotcutで編集済み）からJSONL正本を更新します。
+
+```bash
+python -m src.tools.srt_to_jsonl \
+    --in-srt bleed_edited.srt \
+    --out-jsonl events_updated.jsonl
+```
 
 ### 2. TransNet境界 → SRT変換
 
@@ -104,12 +138,14 @@ python -m src.tools.merge_srt \
 すべてのSRTエントリは **2行構造** で統一されています。
 
 **出血候補**:
+
 ```
 [bleed] delta_over_threshold
 {"type": "bleed_candidate", "metric": "red_ratio", "thr": 0.03, ...}
 ```
 
 **カット境界**:
+
 ```
 [cut] transnet
 {"type": "cut", "model": "TransNetV2", "score": 0.93}
