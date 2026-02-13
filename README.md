@@ -14,7 +14,7 @@ Shotcutに取り込んで視覚的に確認しつつ、Human-in-the-loop修正�
 ## 必要要件
 
 - Python 3.8+
-- OpenCV, NumPy, PyAV
+- OpenCV, NumPy, PyAV, Matplotlib
 
 ```bash
 pip install -r requirements.txt
@@ -30,6 +30,7 @@ pip install -r requirements.txt
 | `{stem}_bleed.srt` | SRT | 出血候補イベント（可視化・編集用） |
 | `{stem}_metrics.srt` | SRT | 赤色率・変化量の可視化字幕 |
 | `{stem}_redlog.csv` | CSV | 赤色率ログ（時系列データの可視化用） |
+| `{stem}_plot.png` | PNG | 赤色率・変化量の時系列グラフ |
 | `{stem}_cut.srt` | SRT | TransNetカット境界 |
 | `{stem}_merged.srt` | SRT | 統合SRT（Shotcut投入用） |
 
@@ -55,6 +56,15 @@ CSVの数値をSRT字幕に変換し、動画上で確認できます。
 python -m src.tools.csv_to_srt \
     --in-csv ./out/case001_redlog.csv \
     --out-srt ./out/case001_metrics.srt
+```
+
+CSVをグラフ（PNG）として出力することもできます。
+
+```bash
+python -m src.tools.plot_redlog \
+    --in-csv ./out/case001_redlog.csv \
+    --out-png ./out/case001_plot.png \
+    --thr 0.03
 ```
 
 #### Step 3: 出血アノテーション
