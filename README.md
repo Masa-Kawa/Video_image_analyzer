@@ -36,6 +36,14 @@ pip install -r requirements.txt
 
 ## 使い方
 
+### 0. 事前準備（プロキシ作成）
+
+解析を高速化するために、プロキシ動画を作成することを推奨します。
+
+```bash
+python -m src.tools.make_proxy --video case001.mp4 --outdir proxy/
+```
+
 ### 1. 赤色解析（2段階プロセス）
 
 #### Step 1: 時系列記録
@@ -108,7 +116,7 @@ python -m src.tools.srt_to_jsonl \
     --out-jsonl events_updated.jsonl
 ```
 
-### 2. TransNet境界 → SRT変換
+### 3. TransNet境界 → SRT変換
 
 TransNetV2の実行結果（JSONL）をSRTに変換します。
 
@@ -126,7 +134,7 @@ python -m src.transnet.transnet_to_srt \
 {"t_sec": 720.5, "score": 0.87}
 ```
 
-### 3. SRTマージ
+### 4. SRTマージ
 
 複数のSRTファイルを時刻順にマージし、統合SRTを生成します。
 
@@ -137,7 +145,7 @@ python -m src.tools.merge_srt \
     ./out/case001_bleed.srt
 ```
 
-### 4. Shotcutでの確認
+### 5. Shotcutでの確認
 
 1. Shotcutで**元動画**を開く
 2. 統合SRT（`case001_merged.srt`）を字幕トラックにインポート
