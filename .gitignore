@@ -38,3 +38,32 @@ htmlcov/
 .coverage.*
 coverage.xml
 *.cover
+
+# uv / venv
+.venv/
+uv.lock
+
+# 学習済みモデル・特徴量（再配布しない）
+*.pth
+*.pt
+*.onnx
+*.npy
+models/
+features/
+
+# 解析出力ディレクトリ
+out_*/
+demo_output/
+
+# 動画ファイル（拡張子大文字も）
+*.MP4
+*.AVI
+*.MOV
+*.MKV
+*.WEBM
+*.mlt
+
+# プロキシ動画キャッシュ
+proxy/
+*_proxy_*.mp4
+.claude/
