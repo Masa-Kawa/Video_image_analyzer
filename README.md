@@ -155,4 +155,5 @@ uv run python -m pytest tests/ -v
 
 ## ライセンス
 
-Private / Internal use
+MIT License — see [LICENSE](LICENSE).
+Copyright (c) 2026 Masahiko Kawaguchi, Yokohama Sakae Kyosai Hospital
