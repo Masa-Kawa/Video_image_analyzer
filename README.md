@@ -52,7 +52,8 @@ video_data_analyser/
 │   ├── red/                 # 赤色（出血）解析 ── 3アルゴリズム
 │   │   ├── redlog.py        #   HSV赤色率の時系列記録＋閾値イベント抽出
 │   │   ├── bleed_detector.py #   赤色拡大検出（フレーム差分ベース）
-│   │   └── bleed_spread.py  #   グリッドベース局所拡散検出
+│   │   ├── bleed_spread.py  #   グリッドベース局所拡散検出
+│   │   └── bleed_model_to_outputs.py # 先行研究の出血検出結果→標準SRT/JSONL/CSV変換器
 │   ├── transnet/            # TransNetV2 シーン検出
 │   │   ├── inference.py     #   TransNetV2 PyTorchモデル推論
 │   │   ├── transnet_analyzer.py # BaseAnalyzerインターフェース
@@ -61,6 +62,12 @@ video_data_analyser/
 │   │   └── motion_analyzer.py #  フレーム差分ベースの動き検出
 │   ├── yolo/                # YOLO器械検出
 │   │   └── yolo_analyzer.py #   YOLO8手術器械認識＋シーン分割
+│   ├── phase/               # 手術フェーズ
+│   │   ├── phase_to_outputs.py # 先行研究フェーズ予測→標準SRT/JSONL/CSV変換器
+│   │   └── maps/            #   phase_id↔phase_name マップ（Cholec80既定）
+│   ├── action/              # 手技・動作認識
+│   │   ├── action_to_outputs.py # 先行研究 triplet/action 予測→標準SRT/JSONL/CSV変換器
+│   │   └── maps/            #   triplet_id↔(i,v,t) マップ（CholecT50既定）
 │   ├── mlt/                 # Shotcut MLTプロジェクト生成
 │   │   ├── mlt_generator.py #   MLT XML生成（マルチトラック）
 │   │   └── mlt_builder.py   #   柔軟な設定ベースMLTビルダー
@@ -96,6 +103,9 @@ video_data_analyser/
 | **transnet** | `src.transnet` | TransNetV2によるシーン境界検出 | `_cut.srt`, `_cut.jsonl` |
 | **motion** | `src.motion` | フレーム差分ベースの動き検出 | JSON結果 |
 | **yolo** | `src.yolo` | YOLO8手術器械認識＋シーン分割 | `_scenes.srt`, `_scenes.jsonl` |
+| **phase_converter** | `src.phase.phase_to_outputs` | 先行研究のフェーズ認識結果（Cholec80公式アノテーション / TeCNO・Trans-SVNet・LoViT・Surgformer 等の予測）をフレーム単位→区間に整形し標準フォーマットへ変換 | `_phase.srt`, `_phase.jsonl`, `_phase.csv` |
+| **bleed_model_converter** | `src.red.bleed_model_to_outputs` | 先行研究の出血検出結果（深層学習の出血確率、SurgBlood 風 region+point、MultiBypass140 の IAE 出血ラベル＋severity）を、ヒステリシス区間化して標準フォーマットへ変換（補完的な変換器、既存 red/ と非衝突） | `_bleed_model.srt`, `_bleed_model.jsonl`, `_bleed_model.csv` |
+| **action_converter** | `src.action.action_to_outputs` | 先行研究の動作/手技認識結果（CholecT50 triplet〈instrument, verb, target〉/ Rendezvous 系、汎用 per-frame/clip action、SLAM action・JIGSAWS gesture・SAR-RARP50 action）をフレーム/クリップ単位→区間に整形し標準フォーマットへ変換。多ラベル重畳・triplet 分解（`--decompose`）対応 | `_action.srt`, `_action.jsonl`, `_action.csv` |
 
 ## クイックスタート
 
@@ -131,6 +141,15 @@ python -m src.tools.merge_srt --out out/case001_merged.srt \
 | `{stem}_plot.png` | PNG | 赤色率・変化量の時系列グラフ |
 | `{stem}_cut.srt` | SRT | TransNetカット境界 |
 | `{stem}_scenes.srt` | SRT | YOLO器械シーン区間 |
+| `{stem}_phase.jsonl` | JSONL | フェーズ区間の正本（先行研究フェーズ認識の変換結果） |
+| `{stem}_phase.srt` | SRT | フェーズ区間（`[phase] <phase_name>`、可視化・編集用） |
+| `{stem}_phase.csv` | CSV | フェーズ時系列（`--level` で segment / frame 粒度） |
+| `{stem}_bleed_model.jsonl` | JSONL | 先行研究の出血検出を変換した出血イベント正本（`source="bleed_model_converter"`） |
+| `{stem}_bleed_model.srt` | SRT | 出血イベント（`[bleed] bleeding`、severity 時 `[bleed] bleeding(sev=N)`） |
+| `{stem}_bleed_model.csv` | CSV | per-frame の `bleed_prob`＋イベント該当フラグ/区間ID（区間入力ではイベント単位） |
+| `{stem}_action.jsonl` | JSONL | 動作/手技区間の正本（`type="triplet"`/`"action"`, `label`, `components`, `source="action_converter"`） |
+| `{stem}_action.srt` | SRT | 動作/手技区間（`[action] grasper,retract,gallbladder` 等、可視化・編集用） |
+| `{stem}_action.csv` | CSV | 動作/手技の時系列（`--level` で segment / frame 粒度、frame は多ラベル long 形式） |
 | `{stem}_merged.srt` | SRT | 統合SRT（Shotcut投入用） |
 
 ## SRT本文フォーマット
