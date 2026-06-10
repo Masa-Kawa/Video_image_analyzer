@@ -1,0 +1,28 @@
+[project]
+name = "video-data-analyser"
+version = "1.0.0"
+description = "手術動画解析プラットフォーム - 出血検出・シーン検出・器械認識・MLT生成"
+requires-python = ">=3.10"
+dependencies = [
+    "opencv-python>=4.5",
+    "numpy>=1.20",
+    "av>=10.0",
+    "matplotlib>=3.5",
+    "ultralytics>=8.0.0",
+    "torch",
+    "torchvision",
+    "pillow",
+    "pyyaml",
+    "ffmpeg-python",
+    "fastapi",
+    "pydantic>=2",
+    "uvicorn[standard]",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -11,22 +11,7 @@ import sys
 from pathlib import Path
 from typing import List
 
-
-# ---------------------------------------------------------------------------
-# SRT 時間フォーマット
-# ---------------------------------------------------------------------------
-
-def format_srt_time(seconds: float) -> str:
-    """秒数を HH:MM:SS,mmm 形式に変換する"""
-    if seconds < 0:
-        seconds = 0.0
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
-    ms = int(round((seconds % 1) * 1000))
-    if ms >= 1000:
-        ms = 999
-    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+from src.core.time_utils import format_srt_time
 
 
 # ---------------------------------------------------------------------------
@@ -104,16 +89,9 @@ def boundaries_to_srt(
         start_srt = format_srt_time(start)
         end_srt = format_srt_time(end)
 
-        json_line = json.dumps({
-            "type": "cut",
-            "model": "TransNetV2",
-            "score": round(score, 4),
-        }, ensure_ascii=False)
-
         lines.append(f"{idx}")
         lines.append(f"{start_srt} --> {end_srt}")
         lines.append("[cut] transnet")
-        lines.append(json_line)
         lines.append("")  # 空行区切り
 
     return "\n".join(lines)

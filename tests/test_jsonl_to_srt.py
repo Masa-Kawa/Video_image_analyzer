@@ -153,9 +153,8 @@ class TestEventsToSrt(unittest.TestCase):
         self.assertEqual(lines[0], "1")
         self.assertIn("-->", lines[1])
         self.assertEqual(lines[2], "[bleed] delta_over_threshold")
-        # JSON行の確認
-        parsed = json.loads(lines[3])
-        self.assertEqual(parsed["type"], "bleed_candidate")
+        # JSON行はSRTに含まれない（JONLで確認する）
+        self.assertEqual(lines[3], "")
 
     def test_event_type_filter(self):
         """イベントタイプフィルタの動作"""

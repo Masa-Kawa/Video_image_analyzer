@@ -1,0 +1,1 @@
+"""Motion detection module."""

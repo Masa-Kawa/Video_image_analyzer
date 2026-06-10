@@ -51,6 +51,9 @@ uv.lock
 models/
 features/
 
+# 外部リポジトリ（各自のライセンスで取得・再配布しない）
+third_party/
+
 # 解析出力ディレクトリ
 out_*/
 demo_output/

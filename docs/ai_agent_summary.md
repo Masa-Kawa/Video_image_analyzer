@@ -1,38 +1,89 @@
-# Video Image Analyzer — AIエージェント向けシステムサマリー
+# Video Data Analyser — AIエージェント向けシステムサマリー
 
 > このドキュメントは、AIエージェント（研究支援・コード生成・分析評価）にシステムの全体像と仕様を伝えるためのものである。
 
 ## 1. システム概要
 
-**目的**: 腹腔鏡手術動画を解析し、イベント（出血候補・カット境界など）をSRT字幕ファイルとして出力する。Shotcutで可視化し、人手による確認・修正を経て高品質なアノテーションデータを構築する。
+**目的**: 腹腔鏡手術動画を複数の解析エンジンで分析し、イベント（出血候補・カット境界・器械変化など）をSRT字幕/MLTプロジェクトとして出力する。Shotcutで可視化し、Human-in-the-loop で修正を経て高品質なアノテーションデータを構築する。
 
 **設計思想**:
 - **JSONL正本（Single Source of Truth）**: 全イベントデータはJSONLで管理。SRTは可視化・編集用のビューにすぎない。
 - **2段階分離**: 時系列記録（動画→CSV）とイベント検出（CSV→JSONL/SRT）を分離し、閾値調整の反復を高速化。
 - **Human-in-the-loop**: アルゴリズム出力をShotcutで修正し、修正結果をJSONLにフィードバック。
+- **PTSベース**: VFR動画でも安定するようPyAV（PTS基準）でフレーム時刻を取得。
 
-## 2. データフロー
+**環境管理**: `uv`（`pyproject.toml`）
+
+## 2. ディレクトリ構成
+
+```
+video_data_analyser/
+├── pyproject.toml           # uv用依存関係定義
+├── src/
+│   ├── core/                # 共通ユーティリティ
+│   │   └── time_utils.py    #   SRT/MLT時刻フォーマット（全モジュール共通）
+│   ├── analyzers/           # 解析器の基底クラス
+│   │   └── base.py          #   BaseAnalyzer / AnalysisResult
+│   ├── red/                 # 赤色（出血）解析 ── 3アルゴリズム
+│   │   ├── redlog.py        #   HSV赤色率 時系列記録＋閾値イベント抽出
+│   │   ├── bleed_detector.py #   赤色拡大検出（フレーム差分ベース）
+│   │   └── bleed_spread.py  #   グリッドベース局所拡散検出
+│   ├── transnet/            # TransNetV2 シーン検出
+│   │   ├── inference.py     #   TransNetV2 PyTorchモデル推論
+│   │   ├── transnet_analyzer.py # BaseAnalyzerインターフェース
+│   │   └── transnet_to_srt.py   # 境界JSONL→SRT変換
+│   ├── motion/              # モーション検出
+│   │   └── motion_analyzer.py #  フレーム差分ベース動き検出
+│   ├── yolo/                # YOLO器械検出
+│   │   └── yolo_analyzer.py #   YOLO8手術器械認識＋シーン分割
+│   ├── mlt/                 # Shotcut MLTプロジェクト生成
+│   │   ├── mlt_generator.py #   MLT XML生成（マルチトラック対応）
+│   │   └── mlt_builder.py   #   設定ベースMLTビルダー
+│   ├── tools/               # 変換・ユーティリティ
+│   │   ├── proxy_manager.py #   プロキシ動画の作成・管理
+│   │   ├── jsonl_to_srt.py  #   JSONL → SRT
+│   │   ├── srt_to_jsonl.py  #   SRT → JSONL（編集反映）
+│   │   ├── merge_srt.py     #   複数SRTマージ
+│   │   ├── csv_to_srt.py    #   CSV時系列 → SRT字幕
+│   │   └── plot_redlog.py   #   CSV → PNGグラフ
+│   └── pipeline.py          # 統合パイプライン（プロキシ→解析→MLT）
+├── tests/                   # ユニットテスト（102件）
+└── docs/
+    └── ai_agent_summary.md  # 本書
+```
+
+## 3. データフロー
 
 ```mermaid
 graph TD
-    Video["入力動画 (.mp4)"] -->|"redlog timeseries"| CSV["赤色率ログ CSV"]
+    Video["入力動画 (.mp4)"] -->|"proxy_manager"| Proxy["プロキシ動画"]
+    Video -->|"redlog timeseries"| CSV["赤色率ログ CSV"]
+    Video -->|"yolo timeseries"| YoloJSONL["器械検出 JSONL"]
+    Video -->|"transnet inference"| TransJSONL["境界検出 JSONL"]
+    Video -->|"motion analyze"| MotionJSON["モーション JSON"]
 
-    CSV -->|"csv_to_srt"| MetricsSRT["指標SRT (_metrics.srt)<br>動画上で数値を確認"]
-    CSV -->|"redlog annotate"| JSONL["イベント正本 JSONL (_events.jsonl)"]
+    CSV -->|"csv_to_srt"| MetricsSRT["指標SRT (_metrics.srt)"]
+    CSV -->|"plot_redlog"| Plot["時系列グラフ PNG"]
+    CSV -->|"redlog annotate"| JSONL["イベント正本 JSONL"]
+
+    YoloJSONL -->|"yolo annotate"| ScenesSRT["シーンSRT (_scenes.srt)"]
+    TransJSONL -->|"transnet_to_srt"| CutSRT["カット境界SRT (_cut.srt)"]
 
     JSONL -->|"jsonl_to_srt"| EventSRT["イベントSRT (_bleed.srt)"]
-    EventSRT -->|"Shotcutで人手修正"| EditedSRT["修正済みSRT"]
+    EventSRT -->|"Shotcutで修正"| EditedSRT["修正済みSRT"]
     EditedSRT -->|"srt_to_jsonl"| JSONL
-
-    TransNet["TransNet V2 出力 (JSONL)"] -->|"transnet_to_srt"| CutSRT["カット境界SRT (_cut.srt)"]
 
     EventSRT -->|"merge_srt"| MergedSRT["統合SRT (_merged.srt)"]
     CutSRT -->|"merge_srt"| MergedSRT
+    ScenesSRT -->|"merge_srt"| MergedSRT
+
+    MergedSRT -->|"Shotcut"| Review["目視確認・修正"]
+    Video -->|"MLTGenerator"| MLT["Shotcutプロジェクト (.mlt)"]
 ```
 
-## 3. データフォーマット定義
+## 4. データフォーマット定義
 
-### 3.1 JSONL（イベント正本）
+### 4.1 JSONL（イベント正本）
 
 ファイル名: `{stem}_events.jsonl`
 
@@ -53,18 +104,16 @@ graph TD
 
 | フィールド | 型 | 必須 | 説明 |
 |---|---|---|---|
-| `type` | string | ✅ | イベント種別 (`bleed_candidate`, `cut`) |
+| `type` | string | ✅ | イベント種別 (`bleed_candidate`, `cut`, `instrument_scene`) |
 | `start_sec` | float | ✅ | 開始時刻（秒） |
 | `end_sec` | float | ✅ | 終了時刻（秒） |
 | `metric` | string | | 検出指標 |
 | `thr` | float | | 使用した閾値 |
-| `k_s` | float | | 連続条件（秒） |
-| `smooth_s` | float | | 平滑化窓（秒） |
 | `delta_max` | float | | 区間内の最大変化量 |
 
-### 3.2 SRT（可視化・編集用）
+### 4.2 SRT（可視化・編集用）
 
-**イベントSRT** (`_bleed.srt`): 2行構造
+2行構造で統一:
 
 ```srt
 1
@@ -73,190 +122,202 @@ graph TD
 {"type": "bleed_candidate", "metric": "red_ratio", "thr": 0.03, "delta_max": 0.05}
 ```
 
-- 3行目: 人間用タグ（`[bleed]`, `[cut]`）
+- 3行目: 人間用タグ（`[bleed]`, `[cut]`, `[scene]`）
 - 4行目: 機械用JSON（時刻情報を除外）
 - **SRTの時刻が正**。JSON行の時刻情報は無視される。
 
-**指標SRT** (`_metrics.srt`): CSV数値の可視化
+### 4.3 CSV（時系列ログ）
 
-```srt
-1
-00:00:00,000 --> 00:00:00,200
-red=0.0123 Δs=0.0000
-```
+3種類のCSVフォーマット:
 
-### 3.3 CSV（時系列ログ）
+| ファイル名 | 固有列 |
+|---|---|
+| `{stem}_redlog.csv` | `red_ratio`, `delta`, `smooth_delta` |
+| `{stem}_bleedlog.csv` | `red_ratio`, `newly_red_ratio`, `bg_stability`, `red_expansion`, `smooth_expansion` |
+| `{stem}_spreadlog.csv` | `red_ratio`, `max_cell_delta`, `delta_std`, `spread_score`, `smooth_spread`, `n_rising_cells` |
 
-ファイル名: `{stem}_redlog.csv`
+共通列: `t_sec`, `t_srt`, `reader`
 
-| 列名 | 型 | 説明 |
-|---|---|---|
-| `t_sec` | float | 経過秒数 |
-| `t_srt` | string | SRT形式時刻 |
-| `red_ratio` | float | 赤色率（0.0〜1.0） |
-| `delta` | float | 前フレームからの増加量 |
-| `smooth_delta` | float | deltaの移動平均 |
-| `reader` | string | バックエンド（pyav/opencv） |
+## 5. モジュールAPIリファレンス
 
-## 4. モジュールAPIリファレンス
+### 5.1 共通時刻ユーティリティ (`src.core.time_utils`)
 
-### 4.1 `src.red.redlog` — 赤色解析
-
-**アルゴリズム**: HSV色空間で赤色（H∈[0,10]∪[170,179]、S≥s_min、V≥v_min）の面積比を計算。円形ROIで腹腔鏡外周を除外。PyAV（PTSベース）優先、OpenCVフォールバック。
-
-#### `record_timeseries(video_path, outdir, fps=5.0, s_min=60, v_min=40, roi_margin=0.08, no_roi=False, smooth_s=5.0) → dict`
-
-動画をサンプリングしてCSVを出力する（Step 1）。イベント検出は行わない。
-
-#### `annotate_bleed(csv_path, outdir, thr=0.03, k_s=3.0, smooth_s=5.0) → dict`
-
-CSVから閾値ベースでイベントを抽出し、JSONL/SRTを出力する（Step 2）。動画の再読み込み不要。
-
-#### `analyze_video(video_path, outdir, ...) → dict`
-
-`record_timeseries` + `annotate_bleed` の一括実行（後方互換）。
-
-#### 公開ユーティリティ
+全モジュールで共通利用。直接定義せず、必ずこのモジュールからimportすること。
 
 | 関数 | シグネチャ | 説明 |
 |---|---|---|
-| `compute_red_ratio` | `(frame_bgr, roi_mask, s_min=60, v_min=40) → float` | 1フレームの赤色率 |
-| `make_circular_roi` | `(height, width, margin=0.08) → np.ndarray` | 円形ROIマスク |
-| `smooth_center` | `(values, window) → List[float]` | 中心移動平均 |
-| `extract_bleed_events` | `(times, smooth_deltas, thr, k_s, fps, smooth_s) → List[dict]` | イベント抽出 |
-| `iter_frames` | `(video_path, fps) → Generator[(t_sec, bgr, reader)]` | フレーム読取 |
+| `format_srt_time` | `(seconds: float) → str` | 秒 → `HH:MM:SS,mmm` |
+| `parse_srt_time` | `(time_str: str) → float` | `HH:MM:SS,mmm` → 秒 |
+| `format_mlt_time` | `(seconds: float) → str` | 秒 → `HH:MM:SS.mmm` |
+| `seconds_to_frames` | `(seconds: float, fps: float) → int` | 秒 → フレーム番号 |
+| `frames_to_seconds` | `(frame: int, fps: float) → float` | フレーム番号 → 秒 |
 
-### 4.2 `src.transnet.transnet_to_srt` — TransNet境界変換
+### 5.2 解析器基底クラス (`src.analyzers.base`)
 
-TransNetV2の境界JSONL（`{"t_sec": float, "score": float}`）をSRTに変換。
+TransNet / Motion / YOLO の解析器が継承する基底クラス。
 
-#### `convert(in_jsonl, out_srt, pad_ms=100) → int`
+```python
+class BaseAnalyzer(ABC):
+    def analyze(self, video_path: str, **params) -> AnalysisResult: ...
+    def analyze_and_save(self, video_path, output_json=None, output_csv=None, **params): ...
+    def _get_video_info(self, video_path: str) -> Dict: ...  # ffprobe経由
 
-各境界点を `t_sec ± pad_ms` の短いSRTエントリに変換する。
+@dataclass
+class AnalysisResult:
+    analyzer_type: str
+    analyzer_version: str
+    parameters: Dict[str, Any]
+    video_info: Dict[str, Any]
+    results: List[Dict[str, Any]]
+    metadata: Dict[str, Any]
+    def save_json(self, output_path: str): ...
+    def save_csv_summary(self, output_path: str): ...
+```
 
-### 4.3 `src.tools.csv_to_srt` — CSV → SRT変換
+### 5.3 赤色解析 (`src.red.redlog`)
 
-#### `convert(in_csv, out_srt, columns=None) → int`
+**アルゴリズム**: HSV色空間で赤色（H∈[0,10]∪[170,179]、S≥s_min、V≥v_min）の面積比を計算。円形ROIで腹腔鏡外周を除外。PyAV（PTSベース）優先、OpenCVフォールバック。
 
-CSVの数値列をSRT字幕に変換する。`columns` でデフォルト `["red_ratio", "smooth_delta"]`。
+| 関数 | 説明 |
+|---|---|
+| `record_timeseries(video_path, outdir, fps=5.0, ...)` | 動画 → CSV（Step 1） |
+| `annotate_bleed(csv_path, outdir, thr=0.03, ...)` | CSV → JSONL/SRT（Step 2） |
+| `analyze_video(video_path, outdir, ...)` | Step 1 + 2 一括実行 |
+| `compute_red_ratio(frame_bgr, roi_mask, ...)` | 1フレームの赤色率 |
+| `make_circular_roi(height, width, margin)` | 円形ROIマスク |
+| `iter_frames(video_path, fps)` | フレーム読取ジェネレータ |
 
-### 4.4 `src.tools.jsonl_to_srt` — JSONL → SRT変換
+### 5.4 赤色拡大検出 (`src.red.bleed_detector`)
 
-#### `convert(in_jsonl, out_srt, event_type=None) → int`
+フレーム間の新規赤色ピクセルを追跡。背景安定度を考慮し、カメラ移動との誤検知を抑制。
 
-イベントJSONLからSRTを生成。`event_type` で特定種別のみフィルタ可能。
+### 5.5 局所拡散検出 (`src.red.bleed_spread`)
 
-### 4.5 `src.tools.srt_to_jsonl` — SRT → JSONL変換
+8×8グリッドでセル単位の赤色率変化を計算。`spread_score = delta_std × max_cell_delta` により局所変化を検出。
 
-#### `convert(in_srt, out_jsonl) → int`
+### 5.6 TransNet (`src.transnet`)
 
-Shotcutで編集済みのSRTを読み込み、JSONL正本に変換する。SRTの時刻でJSON内の時刻を上書きする。
+- `inference.SceneDetector`: TransNetV2 PyTorchモデルラッパー
+- `transnet_analyzer.TransNetAnalyzer(BaseAnalyzer)`: プラグイン型インターフェース
+- `transnet_to_srt.convert(in_jsonl, out_srt, pad_ms=100)`: 境界JSONL → SRT
 
-### 4.6 `src.tools.merge_srt` — SRTマージ
+### 5.7 モーション検出 (`src.motion.motion_analyzer`)
 
-#### `merge(out_path, srt_paths) → int`
+`MotionAnalyzer(BaseAnalyzer)`: OpenCVフレーム差分＋ガウシアンブラーで動きを検出。
 
-複数SRTを時刻順にマージし、インデックスを振り直す。
+### 5.8 YOLO器械検出 (`src.yolo.yolo_analyzer`)
 
-## 5. CLIリファレンス
+YOLO8で手術器械を検出し、器械の組み合わせ変化でシーンを分割。手術フェーズ（dissection, cutting, manipulation, neutral）を推定。
+
+### 5.9 MLT生成 (`src.mlt`)
+
+- `MLTGenerator`: Shotcut互換のMLT XML生成（マルチトラック・シリーズ対応）
+- `MLTBuilder`: 設定ベースの柔軟なMLTビルダー
+
+### 5.10 変換ツール (`src.tools`)
+
+| モジュール | 機能 |
+|---|---|
+| `jsonl_to_srt` | JSONL → SRT（`event_type` でフィルタ可能） |
+| `srt_to_jsonl` | SRT → JSONL（SRTの時刻でJSONを上書き） |
+| `csv_to_srt` | CSV数値 → SRT字幕 |
+| `merge_srt` | 複数SRTを時刻順マージ |
+| `plot_redlog` | CSV → PNGグラフ（3種類のCSVを自動判別） |
+| `proxy_manager` | プロキシ動画の作成・管理（360p/480p/720p/1080p） |
+
+## 6. CLIリファレンス
 
 ```bash
-# Step 1: 時系列記録
-python -m src.red.redlog timeseries --video INPUT.mp4 --outdir OUT/
+# 赤色解析
+python -m src.red.redlog timeseries --video IN.mp4 --outdir OUT/
+python -m src.red.redlog annotate --csv OUT/IN_redlog.csv --outdir OUT/ --thr 0.03
+python -m src.red.redlog analyze --video IN.mp4 --outdir OUT/
 
-# Step 2: 出血アノテーション
-python -m src.red.redlog annotate --csv OUT/INPUT_redlog.csv --outdir OUT/ --thr 0.03
+# 赤色拡大検出
+python -m src.red.bleed_detector timeseries --video IN.mp4 --outdir OUT/
+python -m src.red.bleed_detector annotate --csv OUT/IN_bleedlog.csv --outdir OUT/ --thr 0.005
 
-# 一括実行
-python -m src.red.redlog analyze --video INPUT.mp4 --outdir OUT/
+# 局所拡散検出
+python -m src.red.bleed_spread timeseries --video IN.mp4 --outdir OUT/
+python -m src.red.bleed_spread annotate --csv OUT/IN_spreadlog.csv --outdir OUT/ --thr 0.001
 
-# CSV → 指標SRT
-python -m src.tools.csv_to_srt --in-csv OUT/INPUT_redlog.csv --out-srt OUT/INPUT_metrics.srt
+# YOLO器械検出
+python -m src.yolo.yolo_analyzer timeseries --video IN.mp4 --outdir OUT/
+python -m src.yolo.yolo_analyzer annotate --jsonl OUT/IN_yolo_timeseries.jsonl --outdir OUT/
 
-# TransNet → SRT
+# TransNet境界変換
 python -m src.transnet.transnet_to_srt --in-jsonl boundaries.jsonl --out-srt OUT/cut.srt
 
-# JSONL ⇔ SRT
+# 変換ツール
+python -m src.tools.csv_to_srt --in-csv OUT/IN_redlog.csv --out-srt OUT/IN_metrics.srt
+python -m src.tools.plot_redlog --in-csv OUT/IN_redlog.csv --out-png OUT/IN_plot.png --thr 0.03
 python -m src.tools.jsonl_to_srt --in-jsonl events.jsonl --out-srt bleed.srt
 python -m src.tools.srt_to_jsonl --in-srt bleed_edited.srt --out-jsonl events_updated.jsonl
-
-# SRTマージ
 python -m src.tools.merge_srt --out merged.srt cut.srt bleed.srt
 ```
 
-## 6. 新規分析器の追加ガイド（コードエージェント向け）
+## 7. 新規分析器の追加ガイド
 
-新しい分析器（例: ポート検出、器具認識）を追加する手順:
+新しい分析器（例: ポート検出、組織認識）を追加する手順:
 
-### 6.1 ディレクトリ構造
+### 7.1 方法A: 2段階パターン（redlog準拠）
 
-```
-src/
-├── red/           # 既存: 赤色解析
-├── transnet/      # 既存: TransNet連携
-├── {new_analyzer}/  # 新規分析器
-│   ├── __init__.py
-│   └── {analyzer_name}.py
-└── tools/         # 既存: 変換ツール（共通利用）
-```
-
-### 6.2 実装パターン
-
-既存の `redlog.py` に倣い、以下の2段階構成を推奨する:
+`src/{new_module}/` に以下の構造で実装する:
 
 ```python
-# Step 1: 時系列記録
+from src.core.time_utils import format_srt_time
+
 def record_timeseries(video_path: str, outdir: str, **params) -> dict:
-    """動画 → CSV（サンプリング結果の保存）"""
+    """動画 → CSV（Step 1）"""
     ...
-    return {"csv": str(csv_path)}
 
-# Step 2: イベントアノテーション
 def annotate(csv_path: str, outdir: str, **params) -> dict:
-    """CSV → JSONL + SRT（閾値ベースのイベント検出）"""
+    """CSV → JSONL + SRT（Step 2）"""
     ...
-    return {"jsonl": str(jsonl_path), "srt": str(srt_path)}
 ```
 
-### 6.3 JSONL出力規約
-
-新規イベントタイプを追加する場合:
-
-1. `type` フィールドに一意の識別子を設定（例: `"port_in"`, `"instrument_detected"`）
-2. `start_sec`, `end_sec` フィールドは必須
-3. イベント固有のメタデータは自由に追加可能
-
-### 6.4 SRTタグの登録
-
-`src/tools/jsonl_to_srt.py` の `TAG_TEMPLATES` に新しいタグを追加する:
+### 7.2 方法B: BaseAnalyzerパターン（TransNet/Motion準拠）
 
 ```python
-TAG_TEMPLATES = {
-    "bleed_candidate": "[bleed] delta_over_threshold",
-    "cut": "[cut] transnet",
-    "port_in": "[port] intrabody",        # 新規追加
-}
+from src.analyzers.base import BaseAnalyzer, AnalysisResult
+
+class NewAnalyzer(BaseAnalyzer):
+    def __init__(self):
+        super().__init__(name="new_analyzer", version="1.0.0")
+
+    def analyze(self, video_path: str, **params) -> AnalysisResult:
+        video_info = self._get_video_info(video_path)
+        ...
+        return AnalysisResult(
+            analyzer_type=self.name,
+            analyzer_version=self.version,
+            parameters=params,
+            video_info=video_info,
+            results=results,
+        )
 ```
 
-同様に `src/tools/srt_to_jsonl.py` の `TAG_PATTERNS` にも追加する。
+### 7.3 SRTタグの登録
 
-### 6.5 テスト
+`src/tools/jsonl_to_srt.py` の `TAG_TEMPLATES` と `src/tools/srt_to_jsonl.py` の `TAG_PATTERNS` に新しいタグを追加する。
 
-`tests/test_{analyzer_name}.py` を作成し、以下を最低限テストする:
+### 7.4 テスト
+
+`tests/test_{module_name}.py` を作成し、以下を最低限テストする:
 - 時系列記録の出力CSVフォーマット
 - イベント抽出ロジック（正常系・境界値・空入力）
 - JSONL/SRT出力の整合性
 
-## 7. 依存ライブラリ
+## 8. 依存ライブラリ
 
 | パッケージ | 用途 |
 |---|---|
-| `opencv-python` | フレーム読込・HSV変換・赤色マスク計算 |
+| `opencv-python` | フレーム読込・HSV変換・赤色マスク計算・モーション検出 |
 | `numpy` | 画像配列操作・ROIマスク生成 |
 | `av` (PyAV) | PTSベースのフレーム読込（VFR動画対応） |
-
-## 8. 拡張予定
-
-- `port` / `intrabody` / `extrabody` 状態推定
-  - v0: OpenCVベース特徴量
-  - v1: AI分類器（CNN/ViT）
+| `matplotlib` | 時系列グラフ描画 |
+| `ultralytics` | YOLO8物体検出 |
+| `torch` / `torchvision` | TransNetV2推論 |
+| `pillow` | 画像処理補助 |
+| `pyyaml` | 設定ファイル読込 |
+| `ffmpeg-python` | 動画メタデータ取得・プロキシ作成 |

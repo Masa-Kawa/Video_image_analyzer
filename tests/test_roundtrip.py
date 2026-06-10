@@ -1,7 +1,8 @@
 """
 往復変換（ラウンドトリップ）テスト
 
-JSONL → SRT → JSONL の往復変換で情報が保持されることを検証する。
+JSONL → SRT → JSONL の往復変換で時刻とイベントタイプが保持されることを検証する。
+SRTにはタグ行のみ（JSONメタデータなし）のため、メタデータは保持されない。
 """
 
 import json
@@ -17,7 +18,7 @@ class TestRoundTrip(unittest.TestCase):
     """往復変換テスト"""
 
     def test_bleed_roundtrip(self):
-        """出血候補イベントの往復変換で情報が保持されること"""
+        """出血候補イベントの往復変換でタイプと時刻が保持されること"""
         original_event = {
             "type": "bleed_candidate",
             "metric": "red_ratio",
@@ -49,22 +50,8 @@ class TestRoundTrip(unittest.TestCase):
             content = restored_path.read_text(encoding="utf-8").strip()
             restored_event = json.loads(content)
 
-            # メタデータの保持
+            # タイプが保持される
             self.assertEqual(restored_event["type"], original_event["type"])
-            self.assertEqual(restored_event["metric"], original_event["metric"])
-            self.assertAlmostEqual(
-                restored_event["thr"], original_event["thr"], places=5
-            )
-            self.assertAlmostEqual(
-                restored_event["k_s"], original_event["k_s"], places=5
-            )
-            self.assertAlmostEqual(
-                restored_event["smooth_s"], original_event["smooth_s"], places=5
-            )
-            self.assertAlmostEqual(
-                restored_event["delta_max"], original_event["delta_max"],
-                places=5
-            )
 
             # 時刻情報の保持（SRT時刻精度はミリ秒）
             self.assertAlmostEqual(
@@ -77,7 +64,7 @@ class TestRoundTrip(unittest.TestCase):
             )
 
     def test_multiple_events_roundtrip(self):
-        """複数イベントの往復変換で順序と情報が保持されること"""
+        """複数イベントの往復変換で順序とタイプが保持されること"""
         events = [
             {
                 "type": "bleed_candidate",
@@ -121,7 +108,7 @@ class TestRoundTrip(unittest.TestCase):
                 restored = json.loads(line)
                 self.assertEqual(restored["type"], events[i]["type"])
                 self.assertAlmostEqual(
-                    restored["delta_max"], events[i]["delta_max"], places=5
+                    restored["start_sec"], events[i]["start_sec"], places=2
                 )
 
     def test_time_modification_preserved(self):

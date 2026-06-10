@@ -98,9 +98,8 @@ class TestBoundariesToSrt(unittest.TestCase):
         self.assertIn("2\n", srt)
         # ヘッダタグ
         self.assertIn("[cut] transnet", srt)
-        # JSONにtype, model, scoreが含まれること
-        self.assertIn('"type": "cut"', srt)
-        self.assertIn('"model": "TransNetV2"', srt)
+        # SRTにはタグ行のみ（JSONメタデータなし）
+        self.assertNotIn('"type"', srt)
 
     def test_padding(self):
         """±pad_msの範囲が正しいこと"""
