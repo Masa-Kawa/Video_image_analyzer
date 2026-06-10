@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class TransNetAnalyzer(BaseAnalyzer):
     """TransNet V2 scene detection analyzer."""
     
-    def __init__(self, weights_path: str = None, device: str = "cuda"):
+    def __init__(self, weights_path: Optional[str] = None, device: str = "cuda"):
         """
         Initialize TransNet analyzer.
         
@@ -219,7 +219,9 @@ def main():
     parser = argparse.ArgumentParser(description="TransNet V2 Scene Detection Analyzer")
     parser.add_argument("video", help="Video file to analyze")
     parser.add_argument("--threshold", type=float, default=0.5, help="Detection threshold (default: 0.5)")
-    parser.add_argument("--weights", type=str, default="transnetv2-pytorch-weights.pth", help="Path to model weights")
+    parser.add_argument("--weights", type=str, default=None,
+                        help="Path to model weights (default: none; uses randomly "
+                             "initialized weights, consistent with the API default)")
     parser.add_argument("--device", type=str, default="cuda", choices=["cuda", "cpu"], help="Device to use")
     parser.add_argument("--output-json", type=str, help="Output JSON file path")
     parser.add_argument("--output-csv", type=str, help="Output CSV summary file path")

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="csrf-token" content="__CSRF_TOKEN__">
+  <title>手術フェーズ アノテーション編集</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header id="topbar">
+    <span id="video-name">—</span>
+    <span id="mode-badge"></span>
+    <span class="spacer"></span>
+    <span id="status">読み込み中…</span>
+    <button id="save-btn" title="Ctrl+S">保存 (Ctrl+S)</button>
+  </header>
+
+  <main>
+    <section id="video-pane">
+      <!-- preload=metadata: 長尺・高解像度の手術動画で全体事前読込による帯域/メモリ圧迫を避ける -->
+      <video id="video" preload="metadata" controls></video>
+      <div id="playhead-info">
+        <span id="time-cur">00:00:00,000</span>
+        <span id="time-dur">/ 00:00:00,000</span>
+      </div>
+      <div id="timeline" title="クリック/←→でシーク"
+           role="slider" tabindex="0"
+           aria-label="再生位置（←→で1秒シーク）"
+           aria-valuemin="0" aria-valuenow="0">
+        <div id="timeline-segments" role="list"
+             aria-label="フェーズ区間（Tabで移動、Enterで選択）"></div>
+        <div id="timeline-cursor"></div>
+      </div>
+    </section>
+
+    <section id="edit-pane">
+      <div id="palette">
+        <div class="palette-title">フェーズ（数字キーで付与）</div>
+        <div id="label-buttons"></div>
+      </div>
+
+      <div id="seg-editor">
+        <div class="seg-editor-title">選択中セグメント</div>
+        <div id="seg-fields">
+          <label>ラベル <span id="sel-label">—</span></label>
+          <label>開始
+            <input type="text" id="sel-start" placeholder="HH:MM:SS,mmm"
+                   inputmode="numeric"
+                   pattern="\d{1,2}:\d{2}:\d{2}[,.]\d{3}"
+                   title="HH:MM:SS,mmm 形式で入力してください" required>
+            <button class="snap" data-field="start">I: 再生位置</button>
+          </label>
+          <label>終了
+            <input type="text" id="sel-end" placeholder="HH:MM:SS,mmm"
+                   inputmode="numeric"
+                   pattern="\d{1,2}:\d{2}:\d{2}[,.]\d{3}"
+                   title="HH:MM:SS,mmm 形式で入力してください" required>
+            <button class="snap" data-field="end">O: 再生位置</button>
+          </label>
+        </div>
+        <div class="seg-actions">
+          <button id="insert-btn" title="N">＋ 挿入 (N)</button>
+          <button id="delete-btn" title="Del">🗑 削除 (Del)</button>
+        </div>
+      </div>
+
+      <ol id="seg-list"></ol>
+    </section>
+  </main>
+
+  <footer id="help">
+    Space: 再生/停止 &nbsp;|&nbsp; ←/→: 1秒シーク &nbsp;|&nbsp; I/O: 開始/終了を再生位置に
+    &nbsp;|&nbsp; N: 挿入 &nbsp;|&nbsp; Del: 削除 &nbsp;|&nbsp; 1-9: ラベル付与 &nbsp;|&nbsp; Ctrl+S: 保存
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>

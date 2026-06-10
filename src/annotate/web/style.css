@@ -1,0 +1,190 @@
+:root {
+  --bg: #1e1f23;
+  --panel: #2a2c31;
+  --line: #3a3d44;
+  --fg: #e8e8ea;
+  --muted: #9aa0aa;
+  --accent: #4c9aff;
+  --danger: #ff6b6b;
+  --sel: #36507a;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, "Noto Sans CJK JP", sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+#topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+#topbar .spacer { flex: 1; }
+#video-name { font-weight: 600; }
+#mode-badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--sel);
+  color: var(--fg);
+}
+#status { color: var(--muted); font-size: 13px; }
+
+button {
+  background: var(--line);
+  color: var(--fg);
+  border: 1px solid #4a4e57;
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 13px;
+}
+button:hover { background: #464a54; }
+
+/* キーボード操作時のフォーカス可視化（アクセシビリティ） */
+button:focus-visible,
+input:focus-visible,
+.seg-row:focus-visible,
+.label-btn:focus-visible,
+.tl-seg:focus-visible,
+#timeline:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+#save-btn { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+#delete-btn { border-color: var(--danger); color: var(--danger); }
+
+main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 10px;
+  padding: 10px;
+  min-height: 0;
+}
+
+#video-pane { display: flex; flex-direction: column; min-height: 0; }
+#video {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  background: #000;
+  border-radius: 6px;
+  /* 表示領域と映像のアスペクト比が異なっても歪ませない（アノテーション精度のため） */
+  object-fit: contain;
+}
+#playhead-info { font-variant-numeric: tabular-nums; padding: 6px 2px; color: var(--muted); }
+#time-cur { color: var(--fg); font-weight: 600; }
+
+#timeline {
+  position: relative;
+  height: 34px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+}
+#timeline-segments { position: absolute; inset: 0; }
+.tl-seg {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  background: #3d6b4f;
+  border: 1px solid #58916b;
+  border-radius: 3px;
+  overflow: hidden;
+  font-size: 10px;
+  color: #d7ffe5;
+  white-space: nowrap;
+  padding: 1px 3px;
+}
+.tl-seg.sel { background: var(--sel); border-color: var(--accent); color: #fff; }
+#timeline-cursor {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+#edit-pane { display: flex; flex-direction: column; min-height: 0; gap: 10px; }
+
+#palette, #seg-editor { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
+.palette-title, .seg-editor-title { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+#label-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+.label-btn { font-size: 12px; }
+.label-btn .num { color: var(--accent); font-weight: 700; margin-right: 4px; }
+
+#seg-fields { display: flex; flex-direction: column; gap: 6px; }
+#seg-fields label { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+#seg-fields input {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-variant-numeric: tabular-nums;
+  width: 140px;
+}
+#seg-fields input.invalid {
+  border-color: var(--danger);
+  outline: 1px solid var(--danger);
+}
+#sel-label { color: var(--fg); font-weight: 600; }
+.snap { font-size: 11px; }
+.seg-actions { margin-top: 8px; display: flex; gap: 8px; }
+
+#seg-list {
+  flex: 1;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+.seg-row {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  font-size: 13px;
+}
+.seg-row:hover { background: #30333a; }
+.seg-row.sel { background: var(--sel); }
+.seg-row .idx { color: var(--muted); font-variant-numeric: tabular-nums; }
+.seg-row .name { font-weight: 600; }
+.seg-row .time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+
+#help {
+  padding: 6px 14px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* 狭い画面では2カラムを縦積みにして横スクロール/崩れを防ぐ */
+@media (max-width: 760px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+  #seg-fields input {
+    width: 100%;
+  }
+}

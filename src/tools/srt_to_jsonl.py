@@ -22,7 +22,10 @@ from src.tools.merge_srt import format_srt_time, parse_srt_time
 
 # タグ行からイベントタイプを推定するパターン
 TAG_PATTERNS = {
+    re.compile(r"^\[bleed_ai\]"): "bleed_ai_candidate",
     re.compile(r"^\[bleed\]"): "bleed_candidate",
+    re.compile(r"^\[anomaly\]"): "anomaly_candidate",
+    re.compile(r"^\[phase\]"): "surgical_phase",
     re.compile(r"^\[cut\]"): "cut",
 }
 
@@ -110,6 +113,12 @@ def read_srt_to_events(srt_path: str) -> List[dict]:
         # タグ行からのイベントタイプで上書き（SRT編集で変更されている場合）
         if tag_type:
             event["type"] = tag_type
+
+        # [phase] タグからフェーズ名を抽出
+        if tag_type == "surgical_phase":
+            phase_match = re.match(r"^\[phase\]\s+(.+)", tag_line)
+            if phase_match:
+                event["phase_name"] = phase_match.group(1).strip()
 
         # 時刻情報をSRTの値で更新（人手修正を反映）
         event["start_sec"] = round(start_sec, 3)

@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import ffmpeg
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Tuple, Union
 from transnetv2_pytorch import TransNetV2
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ def _parse_frame_rate(stream: Dict[str, Any]) -> float:
 
 
 class SceneDetector:
-    def __init__(self, weights_path: str = None, device: str = "cuda"):
+    def __init__(self, weights_path: Optional[str] = None, device: str = "cuda"):
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
         logger.info(f"Using device: {self.device}")
         
@@ -59,8 +59,10 @@ class SceneDetector:
         self.model.to(self.device)
         self.model.eval()
 
-    def predict_video(self, video_path: str, threshold: float = 0.5,
-                      return_scores: bool = False, min_scene_length: int = 5) -> Any:
+    def predict_video(
+        self, video_path: str, threshold: float = 0.5,
+        return_scores: bool = False, min_scene_length: int = 5,
+    ) -> Union[List[Dict[str, Any]], Tuple[List[Dict[str, Any]], np.ndarray]]:
         """
         Detect scenes in a video.
         Returns a list of scene dictionaries.
@@ -137,19 +139,30 @@ class SceneDetector:
             logger.info("tqdm not installed, progress bar disabled")
 
         processed_frames = 0
+        frame_nbytes = target_h * target_w * 3
 
         # 例外発生時も ffmpeg サブプロセスを確実に終了させる（プロセス残存防止）。
         try:
             while True:
-                in_bytes = process.stdout.read(target_h * target_w * 3)
+                in_bytes = process.stdout.read(frame_nbytes)
                 if not in_bytes:
+                    break
+
+                # ストリーム終了/破損時に1フレーム未満の端数バイトが返ることがある。
+                # そのまま reshape すると ValueError になるため、端数は破棄して終了する。
+                if len(in_bytes) < frame_nbytes:
+                    logger.warning(
+                        f"末尾に不完全なフレームデータ ({len(in_bytes)}/{frame_nbytes} "
+                        f"bytes) を検出したため破棄します: {video_path}")
                     break
 
                 frame = np.frombuffer(in_bytes, np.uint8).reshape(target_h, target_w, 3)
                 frame_buffer.append(frame)
                 processed_frames += 1
 
-                if pbar:
+                # tqdm の __bool__ は total/iterable が共に None だと例外を投げる
+                # ため、真偽評価ではなく None 比較で判定する。
+                if pbar is not None:
                     pbar.update(1)
 
                 if len(frame_buffer) >= batch_size:
@@ -160,7 +173,7 @@ class SceneDetector:
             if frame_buffer:
                 self._process_batch(frame_buffer, predictions)
         finally:
-            if pbar:
+            if pbar is not None:
                 pbar.close()
             # stdout/stderr を閉じてプロセスの正常終了 or 強制終了を保証する。
             if process.stdout:
@@ -247,7 +260,11 @@ class SceneDetector:
         batch_np = np.array(frames, dtype=np.uint8)
         batch_np = batch_np[np.newaxis, ...] # (1, T, H, W, C)
         
-        # Convert to torch tensor (uint8) and move to device
+        # Convert to torch tensor (uint8) and move to device.
+        # NOTE: TransNetV2.forward() asserts inputs.dtype == torch.uint8 and
+        # performs the float cast + /255 normalization internally
+        # (permute(...).float().div_(255.)). uint8 入力は仕様であり、
+        # ここで .float() に変換してはならない（アサーション違反になる）。
         tensor = torch.from_numpy(batch_np).to(self.device)
         
         with torch.no_grad():

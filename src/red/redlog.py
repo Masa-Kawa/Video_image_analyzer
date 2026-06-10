@@ -21,22 +21,7 @@ from typing import List, Tuple, Optional
 import cv2
 import numpy as np
 
-
-# ---------------------------------------------------------------------------
-# SRT 時間フォーマット
-# ---------------------------------------------------------------------------
-
-def format_srt_time(seconds: float) -> str:
-    """秒数を HH:MM:SS,mmm 形式に変換する"""
-    if seconds < 0:
-        seconds = 0.0
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
-    ms = int(round((seconds % 1) * 1000))
-    if ms >= 1000:
-        ms = 999
-    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+from src.core.time_utils import format_srt_time
 
 
 # ---------------------------------------------------------------------------

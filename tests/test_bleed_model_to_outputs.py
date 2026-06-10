@@ -7,7 +7,9 @@ bleed_model_to_outputs.py のユニットテスト
 merge_srt 統合を検証する。
 """
 
+import csv
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,6 +25,7 @@ from src.red.bleed_model_to_outputs import (
     hysteresis_segments,
     intervals_to_events,
     main,
+    make_analyzer,
     parse_interval_json,
     parse_perframe_csv,
     resolve_frame_times,
@@ -269,6 +272,7 @@ class TestIntervalEvents(unittest.TestCase):
 class TestConvertPerFrame(unittest.TestCase):
     def _run(self, min_duration=1.0):
         d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         p = _perframe_csv(d, _PROB_HEADER, _PROB_ROWS)
         outdir = Path(d) / "out"
         result = convert(in_path=p, outdir=str(outdir), fps=2.0,
@@ -302,10 +306,9 @@ class TestConvertPerFrame(unittest.TestCase):
         self.assertIn("point", meta)
 
     def test_frame_csv_columns(self):
-        import csv as _csv
         _, result = self._run()
         with open(result["csv"], encoding="utf-8") as f:
-            rows = list(_csv.reader(f))
+            rows = list(csv.reader(f))
         self.assertEqual(
             rows[0],
             ["frame_idx", "t_sec", "t_srt", "bleed_prob",
@@ -321,6 +324,7 @@ class TestConvertPerFrame(unittest.TestCase):
 
     def test_idempotent(self):
         d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         p = _perframe_csv(d, _PROB_HEADER, _PROB_ROWS)
         o1 = Path(d) / "o1"
         o2 = Path(d) / "o2"
@@ -337,6 +341,7 @@ class TestConvertPerFrame(unittest.TestCase):
 class TestConvertInterval(unittest.TestCase):
     def _run(self):
         d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         p = _json_fixture(d, _IAE_EVENTS)
         outdir = Path(d) / "out"
         result = convert(in_path=p, outdir=str(outdir), fps=25.0)
@@ -370,6 +375,7 @@ class TestRoundTrip(unittest.TestCase):
 
     def test_roundtrip_preserves_payload(self):
         d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         p = _json_fixture(d, _IAE_EVENTS)
         outdir = Path(d) / "out"
         result = convert(in_path=p, outdir=str(outdir), fps=25.0)
@@ -402,6 +408,7 @@ class TestMergeIntegration(unittest.TestCase):
 
     def test_merge_with_existing_bleed_srt(self):
         d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         # 変換器の出力（区間 10s, 20s）
         p = _json_fixture(d, _IAE_EVENTS)
         outdir = Path(d) / "out"
@@ -432,6 +439,7 @@ class TestMergeIntegration(unittest.TestCase):
 class TestCLI(unittest.TestCase):
     def test_cli_perframe(self):
         d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         p = _perframe_csv(d, _PROB_HEADER, _PROB_ROWS)
         outdir = Path(d) / "out"
         rc = main([
@@ -445,6 +453,7 @@ class TestCLI(unittest.TestCase):
 
     def test_cli_interval_json(self):
         d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         p = _json_fixture(d, _IAE_EVENTS)
         outdir = Path(d) / "out"
         rc = main(["--in", p, "--fps", "25", "--outdir", str(outdir)])
@@ -454,9 +463,8 @@ class TestCLI(unittest.TestCase):
 
 class TestBaseAnalyzerAdapter(unittest.TestCase):
     def test_make_analyzer(self):
-        from src.red.bleed_model_to_outputs import make_analyzer
-
         d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         p = _json_fixture(d, _IAE_EVENTS)
         analyzer = make_analyzer()
         result = analyzer.analyze(video_path=None, in_path=p, fps=25.0)

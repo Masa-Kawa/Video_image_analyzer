@@ -44,13 +44,19 @@ def extract_chapter_name(text: str) -> str:
 
 
 def generate_ogm_chapters(entries: List[SrtEntry]) -> str:
-    """フェーズエントリからOGMチャプターファイル文字列を生成する。"""
+    """フェーズエントリからOGMチャプターファイル文字列を生成する。
+
+    チャプター番号のゼロパディング幅はエントリ数に応じて動的に決める
+    （100件以上でも全エントリで桁数が揃い、OGMパーサーの順序誤認を防ぐ）。
+    最小2桁を維持する。
+    """
     lines: List[str] = []
+    width = max(2, len(str(len(entries))))
     for idx, entry in enumerate(entries, start=1):
         name = extract_chapter_name(entry.text)
         timestamp = format_chapter_time(entry.start)
-        lines.append(f"CHAPTER{idx:02d}={timestamp}")
-        lines.append(f"CHAPTER{idx:02d}NAME={name}")
+        lines.append(f"CHAPTER{idx:0{width}d}={timestamp}")
+        lines.append(f"CHAPTER{idx:0{width}d}NAME={name}")
     return "\n".join(lines) + "\n"
 
 
@@ -95,18 +101,43 @@ def srt_to_mkv(video_path: str, srt_path: str, output_path: str = "") -> int:
         output_path: 出力MKVパス（省略時: {video_stem}_chapter.mkv）
 
     Returns:
-        終了コード (0=成功)
+        終了コード。0=成功（mkvmerge が警告コード2を返した場合も含む）、
+        1=失敗（mkvmerge 不在、入力ファイル不在、SRT読み込み失敗、
+        [phase] エントリ不在、mkvmerge がエラー終了）。
     """
     if not shutil.which("mkvmerge"):
         print("エラー: mkvmergeが見つかりません。", file=sys.stderr)
         print("インストール: sudo apt install mkvtoolnix", file=sys.stderr)
         return 1
 
+    # 入力ファイルの存在確認（生のスタックトレースを避け、明確なメッセージを返す）
     video = Path(video_path)
+    if not video.is_file():
+        print(f"エラー: 動画ファイルが見つかりません: {video_path}", file=sys.stderr)
+        return 1
+    if not Path(srt_path).is_file():
+        print(f"エラー: SRTファイルが見つかりません: {srt_path}", file=sys.stderr)
+        return 1
+
     if not output_path:
         output_path = str(video.with_name(video.stem + "_chapter.mkv"))
 
-    entries = read_srt(srt_path)
+    # 出力先の親ディレクトリを事前作成する（mkvmergeはディレクトリを作らない）
+    out_parent = Path(output_path).parent
+    try:
+        out_parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        print(f"エラー: 出力ディレクトリを作成できません ({out_parent}): {e}",
+              file=sys.stderr)
+        return 1
+
+    # read_srt は不正なSRTに対し FileNotFoundError / ValueError を送出しうる
+    try:
+        entries = read_srt(srt_path)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"エラー: SRTの読み込みに失敗しました ({srt_path}): {e}", file=sys.stderr)
+        return 1
+
     phase_entries = filter_phase_entries(entries)
 
     if not phase_entries:

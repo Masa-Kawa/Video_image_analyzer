@@ -11,32 +11,7 @@ import sys
 from pathlib import Path
 from typing import List, Tuple
 
-
-# ---------------------------------------------------------------------------
-# SRT 時間パース / フォーマット
-# ---------------------------------------------------------------------------
-
-def parse_srt_time(time_str: str) -> float:
-    """HH:MM:SS,mmm 形式を秒に変換する"""
-    pattern = r"(\d{1,2}):(\d{2}):(\d{2})[,.](\d{3})"
-    match = re.match(pattern, time_str.strip())
-    if not match:
-        raise ValueError(f"無効なSRT時間形式: {time_str}")
-    h, m, s, ms = (int(g) for g in match.groups())
-    return h * 3600 + m * 60 + s + ms / 1000.0
-
-
-def format_srt_time(seconds: float) -> str:
-    """秒数を HH:MM:SS,mmm 形式に変換する"""
-    if seconds < 0:
-        seconds = 0.0
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
-    ms = int(round((seconds % 1) * 1000))
-    if ms >= 1000:
-        ms = 999
-    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+from src.core.time_utils import format_srt_time, parse_srt_time
 
 
 # ---------------------------------------------------------------------------

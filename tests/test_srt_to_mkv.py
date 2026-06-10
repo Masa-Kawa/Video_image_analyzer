@@ -17,7 +17,7 @@ from src.tools.srt_to_mkv import (
     run_mkvmerge,
     srt_to_mkv,
 )
-from src.tools.merge_srt import SrtEntry
+from src.tools.merge_srt import SrtEntry, read_srt
 
 
 class TestFilterPhaseEntries:
@@ -57,6 +57,10 @@ class TestFormatChapterTime:
         assert "," not in result
         assert result == "00:01:05.123"
 
+    def test_negative_clamped_to_zero(self):
+        # 負数入力は 0.0 にクランプされる
+        assert format_chapter_time(-1.0) == "00:00:00.000"
+
 
 class TestExtractChapterName:
     def test_simple(self):
@@ -67,6 +71,14 @@ class TestExtractChapterName:
 
     def test_strips_whitespace(self):
         assert extract_chapter_name("  [phase]  Observation  ") == "Observation"
+
+    def test_empty_name_after_tag(self):
+        # [phase] のみでチャプター名が空のケース → 空文字列
+        assert extract_chapter_name("[phase] ") == ""
+
+    def test_no_tag_returns_line_as_is(self):
+        # [phase] タグが無い行はそのまま返る
+        assert extract_chapter_name("no_tag") == "no_tag"
 
 
 class TestGenerateOgmChapters:
@@ -86,6 +98,10 @@ class TestGenerateOgmChapters:
         assert "CHAPTER01NAME=Preparation" in result
         assert "CHAPTER02=00:03:47.000" in result
         assert "CHAPTER02NAME=Dissection" in result
+
+    def test_empty_list_returns_newline(self):
+        # 空リスト → "\n" のみ（"\n".join([]) + "\n"）
+        assert generate_ogm_chapters([]) == "\n"
 
     def test_roundtrip_with_srt_file(self):
         """実際のSRTファイルの読込 → フィルタ → チャプター生成の往復テスト"""
@@ -107,7 +123,6 @@ class TestGenerateOgmChapters:
             srt_path = f.name
 
         try:
-            from src.tools.merge_srt import read_srt
             entries = read_srt(srt_path)
             phase_entries = filter_phase_entries(entries)
             assert len(phase_entries) == 2
@@ -154,10 +169,17 @@ class TestTempFileCleanup:
         )
         return str(p)
 
+    def _dummy_video(self, tmpdir):
+        # srt_to_mkv は入力動画の存在を検証するため、ダミーの実ファイルを置く
+        p = Path(tmpdir) / "video.mp4"
+        p.write_bytes(b"\x00")
+        return str(p)
+
     def test_temp_file_removed_on_mkvmerge_error(self):
         # run_mkvmerge が例外を投げても chapters_*.txt が残らないこと
         with tempfile.TemporaryDirectory() as d:
             srt_path = self._phase_srt(d)
+            video_path = self._dummy_video(d)
             sys_tmp = tempfile.gettempdir()
             before = set(glob.glob(os.path.join(sys_tmp, "chapters_*.txt")))
 
@@ -166,7 +188,7 @@ class TestTempFileCleanup:
                  mock.patch("src.tools.srt_to_mkv.run_mkvmerge",
                             side_effect=RuntimeError("boom")):
                 with pytest.raises(RuntimeError):
-                    srt_to_mkv(str(Path(d) / "video.mp4"), srt_path,
+                    srt_to_mkv(video_path, srt_path,
                                str(Path(d) / "out.mkv"))
 
             after = set(glob.glob(os.path.join(sys_tmp, "chapters_*.txt")))
@@ -175,15 +197,45 @@ class TestTempFileCleanup:
     def test_temp_file_removed_on_success(self):
         with tempfile.TemporaryDirectory() as d:
             srt_path = self._phase_srt(d)
+            video_path = self._dummy_video(d)
             sys_tmp = tempfile.gettempdir()
             before = set(glob.glob(os.path.join(sys_tmp, "chapters_*.txt")))
 
             with mock.patch("src.tools.srt_to_mkv.shutil.which",
                             return_value="/usr/bin/mkvmerge"), \
                  mock.patch("src.tools.srt_to_mkv.run_mkvmerge", return_value=0):
-                rc = srt_to_mkv(str(Path(d) / "video.mp4"), srt_path,
+                rc = srt_to_mkv(video_path, srt_path,
                                 str(Path(d) / "out.mkv"))
             assert rc == 0
 
             after = set(glob.glob(os.path.join(sys_tmp, "chapters_*.txt")))
             assert before == after
+
+
+class TestInputValidation:
+    """無効なパス入力で生のトレースバックを出さず終了コード1を返すこと。"""
+
+    def test_missing_video_returns_1(self, capsys):
+        with tempfile.TemporaryDirectory() as d:
+            srt_path = Path(d) / "phase.srt"
+            srt_path.write_text(
+                "1\n00:00:00,000 --> 00:00:01,000\n[phase] Preparation\n\n",
+                encoding="utf-8",
+            )
+            with mock.patch("src.tools.srt_to_mkv.shutil.which",
+                            return_value="/usr/bin/mkvmerge"):
+                rc = srt_to_mkv(str(Path(d) / "nope.mp4"), str(srt_path),
+                                str(Path(d) / "out.mkv"))
+            assert rc == 1
+            assert "動画ファイルが見つかりません" in capsys.readouterr().err
+
+    def test_missing_srt_returns_1(self, capsys):
+        with tempfile.TemporaryDirectory() as d:
+            video_path = Path(d) / "video.mp4"
+            video_path.write_bytes(b"\x00")
+            with mock.patch("src.tools.srt_to_mkv.shutil.which",
+                            return_value="/usr/bin/mkvmerge"):
+                rc = srt_to_mkv(str(video_path), str(Path(d) / "nope.srt"),
+                                str(Path(d) / "out.mkv"))
+            assert rc == 1
+            assert "SRTファイルが見つかりません" in capsys.readouterr().err

@@ -85,22 +85,25 @@ INSTRUMENT_COCONames = {
 def _iter_frames_pyav(video_path: str, fps: float):
     """PyAVでPTSベースのフレームを取得するジェネレータ"""
     import av
+    # 例外発生時・ジェネレータの途中破棄時も container を確実に解放する
+    # （PyAV コンテナ/ファイルディスクリプタのリーク防止）。
     container = av.open(video_path)
-    stream = container.streams.video[0]
-    time_base = float(stream.time_base)
-    interval = 1.0 / fps
-    next_t = 0.0
+    try:
+        stream = container.streams.video[0]
+        time_base = float(stream.time_base)
+        interval = 1.0 / fps
+        next_t = 0.0
 
-    for frame in container.decode(stream):
-        pts_sec = frame.pts * time_base if frame.pts is not None else None
-        if pts_sec is None:
-            continue
-        if pts_sec >= next_t:
-            bgr = frame.to_ndarray(format="bgr24")
-            yield pts_sec, bgr
-            next_t = pts_sec + interval
-
-    container.close()
+        for frame in container.decode(stream):
+            pts_sec = frame.pts * time_base if frame.pts is not None else None
+            if pts_sec is None:
+                continue
+            if pts_sec >= next_t:
+                bgr = frame.to_ndarray(format="bgr24")
+                yield pts_sec, bgr
+                next_t = pts_sec + interval
+    finally:
+        container.close()
 
 
 def _iter_frames_opencv(video_path: str, fps: float):
@@ -129,13 +132,31 @@ def _iter_frames_opencv(video_path: str, fps: float):
 
 
 def iter_frames(video_path: str, fps: float):
-    """フレームイテレータ。PyAVを優先し、なければOpenCVにフォールバック。"""
+    """フレームイテレータ。PyAVを優先し、なければOpenCVにフォールバック。
+
+    PyAV が失敗した場合（未インストール、コーデック非対応、破損ファイル等）は
+    理由を stderr に出力してから OpenCV にフォールバックする。理由を握り潰すと
+    運用時の切り分けが困難になるため、必ずログを残す。
+
+    注意: PyAV が1フレーム以上 yield した後に失敗した場合は途中までのフレームが
+    既に消費者へ渡っており、OpenCV で先頭から再取得すると重複が生じる。そのため
+    フォールバックは「PyAV が1フレームも返さずに失敗した場合」に限定する。
+    """
+    produced = False
     try:
         for t, bgr in _iter_frames_pyav(video_path, fps):
+            produced = True
             yield t, bgr, "pyav"
         return
-    except Exception:
-        pass
+    except Exception as e:
+        if produced:
+            # 途中まで PyAV で処理済み。重複を避けるためフォールバックせず送出する。
+            print(f"[yolo_analyzer] PyAV decode failed partway through "
+                  f"({type(e).__name__}: {e}); aborting", file=sys.stderr)
+            raise
+        print(f"[yolo_analyzer] PyAV unavailable or failed "
+              f"({type(e).__name__}: {e}); falling back to OpenCV",
+              file=sys.stderr)
 
     for t, bgr in _iter_frames_opencv(video_path, fps):
         yield t, bgr, "opencv"

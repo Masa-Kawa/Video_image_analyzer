@@ -33,9 +33,8 @@ from typing import List, Optional
 import cv2
 import numpy as np
 
-# --- 既存 redlog.py の共通関数を再利用 ---
+from src.core.time_utils import format_srt_time
 from src.red.redlog import (
-    format_srt_time,
     make_circular_roi,
     iter_frames,
     smooth_center,
