@@ -21,7 +21,11 @@ from src.tools.merge_srt import format_srt_time
 # イベントタイプに対応するSRTタグ行
 TAG_TEMPLATES: Dict[str, str] = {
     "bleed_candidate": "[bleed] delta_over_threshold",
+    "bleed_ai_candidate": "[bleed_ai] bleeding_detected",
+    "anomaly_candidate": "[anomaly] anomaly_detected",
+    "surgical_phase": "[phase] {phase_name}",
     "cut": "[cut] transnet",
+    "instrument_scene": "[scene] instrument_change",
 }
 
 
@@ -77,16 +81,29 @@ def read_events_jsonl(jsonl_path: str) -> List[dict]:
 # SRT 生成
 # ---------------------------------------------------------------------------
 
-def _build_tag_line(event: dict) -> str:
-    """イベントからタグ行（人間向け1行目）を生成する"""
+def build_tag_line(event: dict) -> str:
+    """イベントからタグ行（人間向け1行目）を生成する。
+
+    SRTの2行構造を生成する公開API。他の変換器（phase/action/bleed_model
+    などの *_to_outputs）から再利用される安定インターフェース。
+    """
     event_type = event.get("type", "unknown")
-    return TAG_TEMPLATES.get(event_type, f"[{event_type}] event")
+    template = TAG_TEMPLATES.get(event_type, f"[{event_type}] event")
+    if "{" in template:
+        try:
+            return template.format(**event)
+        except KeyError:
+            return template
+    return template
 
 
-def _build_json_line(event: dict) -> str:
+def build_json_line(event: dict) -> str:
     """イベントからJSON行（機械向け2行目）を生成する。
 
-    SRT内のJSON行には時刻情報を含めない（SRT自体の時刻が正）。
+    SRTの2行構造を生成する公開API。SRT内のJSON行には時刻情報を含めない
+    （SRT自体の時刻が正）。
+
+    他の変換器（*_to_outputs）から再利用される安定インターフェース。
     """
     # 時刻情報を除外したメタデータのみ
     exclude_keys = {"start_sec", "end_sec", "start_srt", "end_srt", "t_sec"}
@@ -94,9 +111,15 @@ def _build_json_line(event: dict) -> str:
     return json.dumps(meta, ensure_ascii=False)
 
 
+# 後方互換エイリアス（旧プライベート名。新規コードは公開名を使うこと）
+_build_tag_line = build_tag_line
+_build_json_line = build_json_line
+
+
 def events_to_srt(
     events: List[dict],
     event_type: Optional[str] = None,
+    include_meta: bool = False,
 ) -> str:
     """
     イベントリストをSRT文字列に変換する。
@@ -104,6 +127,10 @@ def events_to_srt(
     Args:
         events: イベント辞書のリスト
         event_type: フィルタするイベントタイプ（Noneなら全イベント）
+        include_meta: Trueの場合、タグ行の後にJSONメタ行を出力する。
+            メタ行には時刻以外の全フィールド（id等）が含まれ、
+            srt_to_jsonl で読み戻せる（round-trip用）。
+            デフォルトFalseで従来の3行ブロック出力を維持する。
 
     Returns:
         SRT形式の文字列
@@ -122,13 +149,13 @@ def events_to_srt(
         start_srt = format_srt_time(start_sec)
         end_srt = format_srt_time(end_sec)
 
-        tag_line = _build_tag_line(ev)
-        json_line = _build_json_line(ev)
+        tag_line = build_tag_line(ev)
 
         lines.append(f"{idx}")
         lines.append(f"{start_srt} --> {end_srt}")
         lines.append(tag_line)
-        lines.append(json_line)
+        if include_meta:
+            lines.append(build_json_line(ev))
         lines.append("")  # 空行区切り
 
     return "\n".join(lines)

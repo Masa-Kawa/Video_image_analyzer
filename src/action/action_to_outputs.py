@@ -66,7 +66,7 @@ from statistics import median
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.core.time_utils import format_srt_time, frames_to_seconds
-from src.tools.jsonl_to_srt import _build_json_line
+from src.tools.jsonl_to_srt import build_json_line
 
 
 VERSION = "1.0.0"
@@ -700,7 +700,7 @@ def write_srt(events: List[dict], path: Path) -> None:
         lines.append(str(idx))
         lines.append(f"{ev['start_srt']} --> {ev['end_srt']}")
         lines.append(_action_tag_line(ev))
-        lines.append(_build_json_line(ev))
+        lines.append(build_json_line(ev))
         lines.append("")
     path.write_text("\n".join(lines), encoding="utf-8")
 
