@@ -19,9 +19,12 @@ Shotcutに取り込んで視覚的に確認しつつ、Human-in-the-loop で修�
 
 ## ライセンス・データの扱い
 
-- **コード**: MIT License（[LICENSE](LICENSE) 参照）
+- **コード**: MIT License（[LICENSE](LICENSE) 参照）。本リポジトリが配布するのは
+  コードのみで、Cholec80 / CholecT50 由来のデータおよびそれらで学習した重みは
+  **一切含みません**。
 - **学習済みモデル (`*.pth`)**: 本リポジトリには**含まれていません**。
-  Cholec80 由来の重みは CC-BY-NC-SA 4.0 由来のため、利用者各自で
+  Cholec80 / CholecT50 由来の重みは元データのライセンス（**CC BY-NC-SA 4.0、非商用**）が
+  継承されるため、利用者各自で
   [Cholec80 データセット](http://camma.u-strasbg.fr/datasets)を申請・学習してください。
   手順は `src/cholec_phase/train.py` の docstring を参照。
 - **動画データ・解析結果サンプル**: 患者情報保護のため**含まれていません**。
@@ -29,7 +32,21 @@ Shotcutに取り込んで視覚的に確認しつつ、Human-in-the-loop で修�
   - [SelfSupSurg](https://github.com/CAMMA-public/SelfSupSurg) — DINO pretrained ResNet50
   - [TransNet V2](https://github.com/soCzech/TransNetV2) — シーン境界検出
   - [Ultralytics YOLOv8](https://github.com/ultralytics/ultralytics) — 器械検出
-  - [Cholec80 dataset](http://camma.u-strasbg.fr/datasets) — フェーズ認識学習データ
+  - [Cholec80 dataset](http://camma.u-strasbg.fr/datasets) — フェーズ認識学習データ（CAMMA, University of Strasbourg / CC BY-NC-SA 4.0）
+  - [CholecT50 dataset](https://github.com/CAMMA-public/cholect50) — アクション認識学習データ（CAMMA, University of Strasbourg / CC BY-NC-SA 4.0）
+
+### データセットの引用 (Attribution)
+
+本プロジェクトで Cholec80 / CholecT50 由来のモデルを利用・再配布する場合は、
+データ提供元（CAMMA, University of Strasbourg）のライセンス CC BY-NC-SA 4.0 に従い、
+**非商用**の範囲で利用し、以下を引用してください。
+
+- A. P. Twinanda, S. Shehata, D. Mutter, J. Marescaux, M. de Mathelin, N. Padoy,
+  "EndoNet: A Deep Architecture for Recognition Tasks on Laparoscopic Videos,"
+  *IEEE Transactions on Medical Imaging*, 2017. (Cholec80)
+- C. I. Nwoye, et al.,
+  "Rendezvous: Attention Mechanisms for the Recognition of Surgical Action Triplets
+  in Endoscopic Videos," *Medical Image Analysis*, 2022. (CholecT50)
 
 ## セットアップ
 

@@ -3,6 +3,15 @@
 作成日: 2026-04-22  
 対象プロジェクト: `video_data_analyser`
 
+> **データセットの帰属・ライセンス (Attribution)**
+> 本レポートは Cholec80 データセット（CAMMA, University of Strasbourg 提供 /
+> **CC BY-NC-SA 4.0、非商用**）を用いた成果です。掲載した統計・評価結果は同データに
+> 由来します。データ本体および学習済み重みは本リポジトリに含まれません。利用時は
+> 下記を引用し、非商用の範囲でご利用ください。
+> - A. P. Twinanda et al., "EndoNet: A Deep Architecture for Recognition Tasks on
+>   Laparoscopic Videos," *IEEE Transactions on Medical Imaging*, 2017.
+> - データ申請: http://camma.u-strasbg.fr/datasets
+
 ---
 
 ## 1. はじめに
