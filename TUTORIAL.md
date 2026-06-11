@@ -224,7 +224,9 @@ python -m src.annotate.server \
 - `case001_gold_dpo_pairs.jsonl` — `rejected`(自動生成)/`chosen`(人手修正) の学習ペア
 
 > `--srt` を省略すると空の状態から手付けする**ゼロ作成（ゴールドラベル）モード**になります。
-> キーボード操作・出力形式・APIの詳細は [docs/annotation_editor.md](docs/annotation_editor.md) を参照。
+>
+> 👉 **操作方法を一から知りたい場合は、実践ガイド [docs/annotation_editor_tutorial.md](docs/annotation_editor_tutorial.md) を参照**
+> （キーボード操作・区間ジャンプ・再編集・修正履歴の使い方を順に説明）。仕様の詳細は [docs/annotation_editor.md](docs/annotation_editor.md)。
 
 ### 方法B: Shotcutで修正
 

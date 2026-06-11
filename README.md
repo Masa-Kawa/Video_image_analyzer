@@ -198,6 +198,7 @@ python -m src.annotate.server --video case001.mp4 --procedure cholecystectomy
 
 > セキュリティ: 保存APIはCSRFトークンを要求し、既定で `127.0.0.1` のみ待受（ローカル利用前提）。
 
+操作を一から学ぶ実践ガイドは [`docs/annotation_editor_tutorial.md`](docs/annotation_editor_tutorial.md)、
 UI操作・出力形式・APIの詳細は [`docs/annotation_editor.md`](docs/annotation_editor.md) を参照してください。
 
 ## 出力ファイル一覧
