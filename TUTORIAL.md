@@ -36,12 +36,44 @@ python -m src.tools.proxy_manager case001.mp4 \
 
 `proxy/case001_720p.mp4` が作成されます。以降の解析にはこのファイルを使うと高速です。
 
+### 複数動画をまとめて作成
+
+`proxy_manager` は**複数の動画を一度に**受け取れます。指定方法は3通りです。
+
+```bash
+# 1. ファイルを並べて指定
+python -m src.tools.proxy_manager case001.mp4 case002.mp4 case003.mp4 \
+    --resolution 720p --proxy-dir proxy/
+
+# 2. シェルのワイルドカードでまとめて
+python -m src.tools.proxy_manager videos/*.mp4 \
+    --resolution 720p --proxy-dir proxy/
+
+# 3. シリーズモード（大量・連続ケース向け・推奨）
+python -m src.tools.proxy_manager videos/*.mp4 --series \
+    --resolution 720p --proxy-dir proxy/
+```
+
+**通常 と `--series` の違い:**
+
+| | 通常（`--series` なし） | `--series` あり |
+|---|---|---|
+| 壊れた動画があったら | **そこで停止**（中断） | **スキップして続行** |
+| 終了時の表示 | — | `✓ N 成功 / ⚠ M 失敗` の集計 |
+| 失敗時の終了コード | — | 失敗が1件でもあれば `1` |
+| 向いている場面 | 数本・全部正常が前提 | 大量／連続ケース（1本壊れても止めたくない） |
+
+> どちらのモードでも、**既存のプロキシは自動でスキップ**されます（作り直したいときだけ `--force`）。
+> 途中で中断しても、同じコマンドを再実行すれば続きから作れます。
+
 ### オプション
 
 | フラグ | 説明 | デフォルト |
 |--------|------|-----------|
+| `videos`（位置引数） | 対象動画。**複数指定可**（`a.mp4 b.mp4` やワイルドカード） | （必須） |
 | `--resolution` | `360p` / `480p` / `720p` / `1080p` | `720p` |
 | `--proxy-dir` | 出力先ディレクトリ | 元動画と同じ場所 |
+| `--series` | 複数動画を一括処理（失敗をスキップして集計） | `False` |
 | `--force` | 既存プロキシを上書き | `False` |
 
 ---

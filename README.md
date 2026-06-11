@@ -41,6 +41,9 @@ uv sync --group dev  # テスト用（pytest）も含める
 
 ## プロジェクト構成
 
+> 「どこに何があるか」「人が直接動かすプログラムはどれか」を 3層（入口／解析エンジン／内部部品）で
+> 整理した地図と使い方は [`docs/architecture.md`](docs/architecture.md) を参照してください。
+
 ```
 video_data_analyser/
 ├── pyproject.toml
