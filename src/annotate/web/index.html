@@ -13,8 +13,42 @@
     <span id="mode-badge"></span>
     <span class="spacer"></span>
     <span id="status">読み込み中…</span>
-    <button id="save-btn" title="Ctrl+S">保存 (Ctrl+S)</button>
+    <button id="open-btn" title="動画/SRTを開く">📂 開く</button>
+    <button id="history-btn" title="修正履歴を表示">🕘 履歴</button>
+    <button id="save-btn" class="btn-primary" title="Ctrl+S">保存 (Ctrl+S)</button>
   </header>
+
+  <!-- 動画/SRT 読み込みダイアログ（サーバ側パスを指定） -->
+  <dialog id="open-dialog">
+    <form id="open-form">
+      <h2>動画 / SRT を開く</h2>
+      <p class="dialog-note">サーバ（このPC）上のファイルパスを指定します。
+        保存済みの <code>_gold.srt</code> を指定すると、過去の修正を再編集できます。</p>
+      <label>動画パス（必須）
+        <input type="text" id="open-video" placeholder="例: out_lapc_eval2/case001.MP4" required>
+      </label>
+      <label>編集するSRTパス（任意・省略で新規作成）
+        <input type="text" id="open-srt" placeholder="例: out/case001_gold.srt">
+      </label>
+      <label>術式
+        <select id="open-procedure"></select>
+      </label>
+      <div class="dialog-actions">
+        <button type="button" id="open-cancel">キャンセル</button>
+        <button type="submit" id="open-do" class="btn-primary">開く</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 修正履歴ダイアログ（保存ごとの差分を一覧） -->
+  <dialog id="history-dialog">
+    <h2>修正履歴</h2>
+    <p class="dialog-note" id="history-file">—</p>
+    <ol id="history-list"></ol>
+    <div class="dialog-actions">
+      <button type="button" id="history-close">閉じる</button>
+    </div>
+  </dialog>
 
   <main>
     <section id="video-pane">
@@ -70,8 +104,9 @@
   </main>
 
   <footer id="help">
-    Space: 再生/停止 &nbsp;|&nbsp; ←/→: 1秒シーク &nbsp;|&nbsp; I/O: 開始/終了を再生位置に
-    &nbsp;|&nbsp; N: 挿入 &nbsp;|&nbsp; Del: 削除 &nbsp;|&nbsp; 1-9: ラベル付与 &nbsp;|&nbsp; Ctrl+S: 保存
+    Space: 再生/停止 &nbsp;|&nbsp; ←/→: 1秒シーク &nbsp;|&nbsp; Shift+←/→: 前後の区間へジャンプ
+    &nbsp;|&nbsp; I/O: 開始/終了を再生位置に &nbsp;|&nbsp; N: 挿入 &nbsp;|&nbsp; Del: 削除
+    &nbsp;|&nbsp; 1-9: ラベル付与 &nbsp;|&nbsp; Ctrl+S: 保存
   </footer>
 
   <script src="/app.js"></script>

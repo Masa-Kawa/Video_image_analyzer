@@ -22,7 +22,18 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest",
+    "ruff",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+# 既定(E4/E7/E9/F)＝主に実害のあるバグ（未使用/未定義名・構文・論理エラー）を検出する。
+# 整形(ruff format)やimport並べ替え(I)は既存スタイルを大きく書き換えるため含めない
+# 方針（コミット前フックは lint のみ・差分ノイズ回避）。
+select = ["E4", "E7", "E9", "F"]

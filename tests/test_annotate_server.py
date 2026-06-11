@@ -9,7 +9,9 @@ TestClient で各エンドポイントの正常系・異常系を検証する:
   - build_state  : 動画不在(FileNotFoundError) / 未登録術式(KeyError)
 """
 
+import json
 import re
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -32,6 +34,7 @@ def _state(tmp: Path, srt: Path = None, proxy: Path = None) -> AppState:
         proxy=proxy if proxy is not None else tmp / "proxy.mp4",
         save_target=tmp / "case001_gold.srt",
         pairs_target=tmp / "case001_dpo_pairs.jsonl",
+        history_target=tmp / "case001_gold_history.jsonl",
     )
 
 
@@ -40,7 +43,19 @@ def _token(client: TestClient) -> str:
     return re.search(r'name="csrf-token" content="([^"]+)"', html).group(1)
 
 
-class TestIndexAndSession(unittest.TestCase):
+class _TmpCase(unittest.TestCase):
+    """self.tmp の一時ディレクトリを tearDown で必ず後始末する基底クラス。
+
+    テスト失敗/例外時も含めて削除されるため、一時ファイルがリークしない。
+    """
+
+    def tearDown(self):
+        tmp = getattr(self, "tmp", None)
+        if tmp:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestIndexAndSession(_TmpCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.client = TestClient(create_app(_state(self.tmp)))
@@ -71,7 +86,7 @@ class TestIndexAndSession(unittest.TestCase):
         self.assertEqual(body["segments"][0]["id"], "s1")
 
 
-class TestSave(unittest.TestCase):
+class TestSave(_TmpCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.state = _state(self.tmp)
@@ -118,8 +133,117 @@ class TestSave(unittest.TestCase):
                              headers={"X-CSRF-Token": token})
         self.assertEqual(r.status_code, 422)
 
+    def test_save_writes_history_log(self):
+        token = _token(self.client)
+        r = self.client.post("/api/save", json={"segments": [self.seg]},
+                             headers={"X-CSRF-Token": token})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["changes"], 1)  # 新規追加1件
+        self.assertTrue(self.state.history_target.exists())
+        lines = self.state.history_target.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 1)
+        entry = json.loads(lines[0])
+        self.assertEqual(entry["n_changes"], 1)
+        self.assertEqual(entry["changes"][0]["change"], "inserted")
+        self.assertIn("timestamp", entry)
 
-class TestMediaVideo(unittest.TestCase):
+    def test_history_accumulates_per_save(self):
+        token = _token(self.client)
+        # 1回目: 追加
+        self.client.post("/api/save", json={"segments": [self.seg]},
+                         headers={"X-CSRF-Token": token})
+        # 2回目: 同一IDのラベルを変更 → edited として履歴に追記される
+        edited = dict(self.seg, phase_name="ClippingCutting")
+        r = self.client.post("/api/save", json={"segments": [edited]},
+                             headers={"X-CSRF-Token": token})
+        self.assertEqual(r.json()["changes"], 1)
+        lines = self.state.history_target.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 2)  # 保存ごとに1エントリ追記
+        self.assertEqual(json.loads(lines[1])["changes"][0]["change"], "edited")
+
+    def test_no_change_save_not_logged(self):
+        token = _token(self.client)
+        self.client.post("/api/save", json={"segments": [self.seg]},
+                         headers={"X-CSRF-Token": token})  # 1回目: inserted
+        r = self.client.post("/api/save", json={"segments": [self.seg]},
+                             headers={"X-CSRF-Token": token})  # 2回目: 変更なし
+        self.assertEqual(r.json()["changes"], 0)
+        lines = self.state.history_target.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 1)  # 変更0の保存は履歴に残らない
+
+    def test_history_endpoint_requires_csrf(self):
+        r = self.client.get("/api/history")  # トークン無し
+        self.assertEqual(r.status_code, 403)
+
+    def test_history_endpoint_returns_entries(self):
+        token = _token(self.client)
+        self.client.post("/api/save", json={"segments": [self.seg]},
+                         headers={"X-CSRF-Token": token})
+        r = self.client.get("/api/history", headers={"X-CSRF-Token": token})
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertEqual(len(body["entries"]), 1)
+        self.assertEqual(body["history_file"], self.state.history_target.name)
+
+    def test_history_limit_returns_latest(self):
+        token = _token(self.client)
+        # 3回、内容を変えて保存（毎回 changes>0 で履歴に残る）
+        for i in range(3):
+            seg = dict(self.seg, end_sec=5.0 + i)
+            self.client.post("/api/save", json={"segments": [seg]},
+                             headers={"X-CSRF-Token": token})
+        r = self.client.get("/api/history?limit=2",
+                            headers={"X-CSRF-Token": token})
+        body = r.json()
+        self.assertEqual(body["limit"], 2)
+        self.assertEqual(len(body["entries"]), 2)  # 最新2件のみ
+
+
+class TestOpen(_TmpCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.client = TestClient(create_app(_state(self.tmp)))
+        # base_dir を tmp に限定したサーバ（パストラバーサル検証用）
+        self.confined = TestClient(
+            create_app(_state(self.tmp), base_dir=self.tmp))
+
+    def test_open_requires_csrf(self):
+        r = self.client.post("/api/open", json={"video": "x.mp4"})
+        self.assertEqual(r.status_code, 403)
+
+    def test_open_missing_video_returns_400(self):
+        token = _token(self.client)
+        r = self.client.post("/api/open",
+                             json={"video": str(self.tmp / "nope.mp4")},
+                             headers={"X-CSRF-Token": token})
+        self.assertEqual(r.status_code, 400)
+
+    def _open(self, video):
+        token = _token(self.confined)
+        return self.confined.post("/api/open", json={"video": video},
+                                  headers={"X-CSRF-Token": token})
+
+    def test_open_rejects_path_traversal(self):
+        r = self._open("../../../etc/passwd")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("許可ディレクトリ外", r.json()["detail"])
+
+    def test_open_rejects_absolute_outside_base(self):
+        r = self._open("/etc/passwd")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("許可ディレクトリ外", r.json()["detail"])
+
+    def test_open_rejects_empty_path(self):
+        r = self._open("")
+        self.assertEqual(r.status_code, 400)
+
+    def test_open_rejects_directory_path(self):
+        # ベース配下だがファイルでない（ディレクトリ）→ 400
+        r = self._open(str(self.tmp))
+        self.assertEqual(r.status_code, 400)
+
+
+class TestMediaVideo(_TmpCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
 
@@ -145,7 +269,7 @@ class TestMediaType(unittest.TestCase):
         self.assertEqual(_video_media_type(Path("a.bin")), "video/mp4")  # fallback
 
 
-class TestBuildState(unittest.TestCase):
+class TestBuildState(_TmpCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
 

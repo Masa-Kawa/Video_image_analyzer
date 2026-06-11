@@ -244,6 +244,24 @@ UI操作・出力形式・APIの詳細は [`docs/annotation_editor.md`](docs/ann
 uv run python -m pytest tests/ -v
 ```
 
+## コミット前チェック（lint）
+
+コミット時に、変更した Python ファイルへ自動で [ruff](https://docs.astral.sh/ruff/) の lint
+（未使用 import・未定義名・構文/論理エラー等の検出）を走らせるフックを用意しています。
+自動修正できた分は再ステージされ、直せない問題が残るとコミットが中断されます。
+整形（`ruff format`）は既存スタイルを大きく変えるため**含めていません**（lint のみ）。
+
+ネイティブ Git フックはクローン後に共有されないため、各自で一度だけ有効化します:
+
+```bash
+uv sync --group dev          # ruff を含む開発依存を導入
+bash scripts/install-hooks.sh  # .git/hooks/pre-commit を有効化
+```
+
+- フック本体: `scripts/git-hooks/pre-commit`（リポジトリ管理下）
+- 手動実行: `ruff check src/ tests/`
+- 一時的に回避: `git commit --no-verify`
+
 ## ライセンス
 
 MIT License — see [LICENSE](LICENSE).

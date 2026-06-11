@@ -4,6 +4,8 @@
 const API = {
   SESSION: "/api/session",
   SAVE: "/api/save",
+  OPEN: "/api/open",
+  HISTORY: "/api/history",
 };
 
 // サーバが index.html に埋め込んだ CSRF トークン（保存リクエストに付与する）
@@ -18,6 +20,8 @@ const state = {
   segments: [],   // {id, phase_name, start_sec, end_sec}
   selectedId: null,
   dirty: false,
+  procedure: "",
+  procedures: [],
 };
 
 const video = document.getElementById("video");
@@ -60,7 +64,11 @@ async function load() {
     return;
   }
   state.labels = s.labels;
+  state.procedure = s.procedure || "";
+  state.procedures = s.procedures || [];
   state.segments = s.segments.sort((a, b) => a.start_sec - b.start_sec);
+  state.selectedId = null;
+  state.dirty = false;
   document.getElementById("video-name").textContent = s.video_name;
   document.getElementById("mode-badge").textContent =
     s.is_new ? "新規作成" : "修正";
@@ -183,6 +191,25 @@ function lastEnd() {
 function selected() { return state.segments.find(s => s.id === state.selectedId) || null; }
 function select(id) { state.selectedId = id; renderAll(); }
 
+// 再生ヘッドを前/後ろのセグメント開始位置へジャンプし、その区間を選択する。
+// dir > 0: 次の区間、dir < 0: 前の区間。境界の取りこぼしを防ぐため小さなεを使う。
+function jumpSegment(dir) {
+  if (!state.segments.length) return;
+  const eps = 0.05;
+  const t = video.currentTime;
+  const sorted = state.segments.slice().sort((a, b) => a.start_sec - b.start_sec);
+  let target = null;
+  if (dir > 0) {
+    target = sorted.find(s => s.start_sec > t + eps) || null;
+  } else {
+    const before = sorted.filter(s => s.start_sec < t - eps);
+    target = before.length ? before[before.length - 1] : null;
+  }
+  if (!target) { setStatus(dir > 0 ? "最後の区間です" : "最初の区間です"); return; }
+  video.currentTime = target.start_sec;
+  select(target.id);
+}
+
 function assignLabel(name) {
   const seg = selected();
   if (!seg) { setStatus("セグメント未選択"); return; }
@@ -256,7 +283,9 @@ async function save() {
     return;
   }
   state.dirty = false;
-  setStatus(`保存完了: ${res.saved} セグメント / DPOペア ${res.pairs} 件`);
+  setStatus(
+    `保存完了: ${res.saved} セグメント / 今回の変更 ${res.changes} 件 / DPOペア ${res.pairs} 件`);
+  await loadHistory();  // 履歴ダイアログが開いていれば最新化（順序を保つため await）
 }
 
 // ---- フィールド入力 -------------------------------------------------------
@@ -317,14 +346,149 @@ video.addEventListener("loadedmetadata", () => {
   renderTimeline();
 });
 
+// ---- 動画/SRT を開く ------------------------------------------------------
+const openDialog = document.getElementById("open-dialog");
+
+function showOpenDialog() {
+  // 術式ドロップダウンを最新のセッション情報から構築
+  const sel = document.getElementById("open-procedure");
+  sel.innerHTML = "";
+  (state.procedures.length ? state.procedures : [state.procedure]).forEach(p => {
+    const o = document.createElement("option");
+    o.value = p; o.textContent = p;
+    if (p === state.procedure) o.selected = true;
+    sel.appendChild(o);
+  });
+  if (typeof openDialog.showModal === "function") openDialog.showModal();
+  else openDialog.setAttribute("open", "");
+}
+
+async function openSession(e) {
+  if (e) e.preventDefault();
+  const videoPath = document.getElementById("open-video").value.trim();
+  if (!videoPath) { setStatus("動画パスを入力してください"); return; }
+  if (state.dirty &&
+      !confirm("未保存の変更があります。破棄して別ファイルを開きますか？")) {
+    return;
+  }
+  const srtPath = document.getElementById("open-srt").value.trim();
+  const procedure = document.getElementById("open-procedure").value;
+  setStatus("読み込み中…（プロキシ生成に時間がかかる場合があります）");
+  try {
+    const r = await fetch(API.OPEN, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": CSRF_TOKEN },
+      body: JSON.stringify({
+        video: videoPath,
+        srt: srtPath || null,
+        procedure: procedure || null,
+      }),
+    });
+    if (!r.ok) {
+      let detail = r.status;
+      try { detail = (await r.json()).detail || r.status; } catch (_) {}
+      setStatus("読込失敗: " + detail);
+      return;
+    }
+  } catch (err) {
+    setStatus("読込エラー: " + (err && err.message ? err.message : err));
+    return;
+  }
+  openDialog.close();
+  await load();        // 新しい編集対象でセッションを再構築
+  await loadHistory(); // 履歴も対象に合わせて更新
+}
+
+document.getElementById("open-btn").onclick = showOpenDialog;
+document.getElementById("open-cancel").onclick = () => openDialog.close();
+document.getElementById("open-form").addEventListener("submit", openSession);
+
+// ---- 修正履歴 -------------------------------------------------------------
+const historyDialog = document.getElementById("history-dialog");
+
+const CHANGE_KINDS = ["edited", "inserted", "deleted"];
+
+function summarizeChanges(changes) {
+  // プロトタイプ汚染を避けるため null プロトタイプの辞書で集計する。
+  const c = Object.create(null);
+  CHANGE_KINDS.forEach(k => { c[k] = 0; });
+  (changes || []).forEach(p => {
+    if (Object.hasOwn(c, p.change)) c[p.change]++;
+  });
+  return c;
+}
+
+async function loadHistory() {
+  let data;
+  try {
+    // /api/history は CSRF トークン必須（動画名・差分などを含むため）
+    const r = await fetch(API.HISTORY, { headers: { "X-CSRF-Token": CSRF_TOKEN } });
+    if (!r.ok) { return; }
+    data = await r.json();
+  } catch (_) { return; }
+  document.getElementById("history-file").textContent =
+    `${data.history_file}（${data.entries.length} 回保存）`;
+  const ol = document.getElementById("history-list");
+  ol.innerHTML = "";
+  // 新しい保存を上に表示
+  data.entries.slice().reverse().forEach(ent => {
+    const c = summarizeChanges(ent.changes);
+    const li = document.createElement("li");
+    li.className = "hist-row";
+    const head = document.createElement("div");
+    head.className = "hist-head";
+    head.textContent =
+      `${ent.timestamp}  ・ 変更${ent.n_changes}件（編集${c.edited}/追加${c.inserted}/削除${c.deleted}）`;
+    li.appendChild(head);
+    // 各変更の詳細（ラベル・時刻の前後）
+    (ent.changes || []).forEach(p => {
+      const d = document.createElement("div");
+      d.className = "hist-change " + p.change;
+      d.textContent = describeChange(p);
+      li.appendChild(d);
+    });
+    ol.appendChild(li);
+  });
+}
+
+function describeChange(p) {
+  const r = p.rejected, c = p.chosen;
+  const seg = s => s ? `${s.phase_name} [${fmt(s.start_sec)}→${fmt(s.end_sec)}]` : "—";
+  // 既知タイプを明示的に分岐し、未知タイプは「編集」に丸めず可視化する。
+  switch (p.change) {
+    case "inserted": return `＋追加  ${seg(c)}`;
+    case "deleted":  return `－削除  ${seg(r)}`;
+    case "edited":   return `±編集  ${seg(r)}  ⇒  ${seg(c)}`;
+    default:         return `? 不明(${p.change})  ${seg(r)}  ⇒  ${seg(c)}`;
+  }
+}
+
+async function showHistoryDialog() {
+  await loadHistory();
+  if (typeof historyDialog.showModal === "function") historyDialog.showModal();
+  else historyDialog.setAttribute("open", "");
+}
+
+document.getElementById("history-btn").onclick = showHistoryDialog;
+document.getElementById("history-close").onclick = () => historyDialog.close();
+
 // ---- キーボード -----------------------------------------------------------
 document.addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT") return;  // 数値入力中は無効
+  if (document.querySelector("dialog[open]")) return;  // ダイアログ表示中は無効
   if (e.ctrlKey && e.key.toLowerCase() === "s") { e.preventDefault(); save(); return; }
   switch (e.key) {
     case " ": e.preventDefault(); video.paused ? video.play() : video.pause(); break;
-    case "ArrowLeft": video.currentTime = Math.max(0, video.currentTime - 1); break;
-    case "ArrowRight": video.currentTime += 1; break;
+    case "ArrowLeft":
+      e.preventDefault();
+      if (e.shiftKey) jumpSegment(-1);
+      else video.currentTime = Math.max(0, video.currentTime - 1);
+      break;
+    case "ArrowRight":
+      e.preventDefault();
+      if (e.shiftKey) jumpSegment(1);
+      else video.currentTime += 1;
+      break;
     case "i": case "I": snap("start"); break;
     case "o": case "O": snap("end"); break;
     case "n": case "N": insertAtPlayhead(); break;

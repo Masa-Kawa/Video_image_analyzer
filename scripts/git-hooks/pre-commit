@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+#
+# コミット前フック: ステージされた Python ファイルに ruff lint(--fix) を適用する。
+#
+# 方針:
+#   - lint のみ（未使用/未定義名・構文・論理エラー等の実害バグを防ぐ）。
+#   - 整形(ruff format)は含めない。既存スタイルを大きく書き換え差分ノイズになるため。
+#   - 自動修正できた分は再ステージし、直せない問題が残ればコミットを中断する。
+#
+# 有効化: scripts/install-hooks.sh を実行（.git/hooks/pre-commit を本ファイルへ向ける）。
+#
+set -uo pipefail
+
+if ! command -v ruff >/dev/null 2>&1; then
+  echo "⚠ ruff が見つからないため lint をスキップしました（uv sync --group dev / pip install ruff）" >&2
+  exit 0
+fi
+
+# ステージされた 追加/変更/コピー の .py のみ対象（削除・リネーム消失は除外）
+mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACM -- '*.py')
+
+files=()
+for f in "${staged[@]}"; do
+  [ -f "$f" ] && files+=("$f")
+done
+if [ ${#files[@]} -eq 0 ]; then
+  exit 0
+fi
+
+# 自動修正を適用（残った違反は表示され、終了コードが非0になる）
+ruff check --fix "${files[@]}"
+status=$?
+
+# ruff が修正した内容を再ステージ（部分ステージ時は未ステージ分も含む点に留意）
+git add "${files[@]}"
+
+if [ "$status" -ne 0 ]; then
+  echo "" >&2
+  echo "✗ ruff: 自動修正できない問題が残っています。上記を修正して再コミットしてください。" >&2
+  echo "  確認コマンド: ruff check ${files[*]}" >&2
+  echo "  どうしても回避する場合は: git commit --no-verify" >&2
+  exit 1
+fi
+
+exit 0
