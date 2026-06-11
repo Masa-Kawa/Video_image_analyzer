@@ -146,8 +146,8 @@ video_data_analyser/
 ## クイックスタート
 
 ```bash
-# 1. プロキシ作成（解析高速化のため）
-python -m src.tools.proxy_manager case001.mp4 --resolution 720p
+# 1. プロキシ作成（解析高速化のため。--gpu で高速化、複数→--merge で1本化）
+python -m src.tools.proxy_manager case001.mp4 --resolution 720p --gpu
 
 # 2. 赤色解析（時系列記録 → イベント抽出）
 python -m src.red.redlog timeseries --video case001.mp4 --outdir out/

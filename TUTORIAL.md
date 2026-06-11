@@ -75,6 +75,31 @@ python -m src.tools.proxy_manager videos/*.mp4 --series \
 | `--proxy-dir` | 出力先ディレクトリ | 元動画と同じ場所 |
 | `--series` | 複数動画を一括処理（失敗をスキップして集計） | `False` |
 | `--force` | 既存プロキシを上書き | `False` |
+| `--gpu` | NVIDIA NVENC（`h264_nvenc`）で**GPUエンコード**。CPUより数倍高速 | `False` |
+| `--fps` | プロキシのフレームレート。解析は最大5fpsなので30で十分。長尺は15でさらに半減。`0`で元のfps維持 | `30` |
+| `--merge` | 作成した全プロキシを**1本に無劣化連結**（中間ファイルは自動削除） | `False` |
+| `--merge-name` | 連結ファイル名（ファイル名部分のみ採用） | `<先頭動画名>_merged_<解像度>.MP4` |
+| `--keep-parts` | `--merge`時、分割プロキシも残す | `False` |
+
+### GPU・一本化・長尺動画
+
+**GPUで高速作成 ＋ 分割動画を1本に連結**（レコーダーが分割記録した1手術を、まとめて軽量プロキシ化）:
+
+```bash
+python -m src.tools.proxy_manager videos/*.MP4 \
+    --resolution 720p --proxy-dir proxy/ --gpu --merge
+```
+
+> ⚠️ ワイルドカードは**拡張子の大文字・小文字を一致**させること（Linuxは区別する）。
+> 例: ファイルが `.MP4` なら `*.MP4`。`*.mp4` だと展開されず分かりやすいエラーで停止します。
+
+**5〜6時間の長尺動画**はファイルが巨大化します。`--fps 15`（必要なら `--resolution 480p` も）で圧縮します（解析精度は不変）:
+
+```bash
+# 6時間動画の目安: 720p/30fps ≒ 7.8GB → 15fps ≒ 4GB → +480p ≒ 2.2GB
+python -m src.tools.proxy_manager videos/*.MP4 \
+    --resolution 480p --proxy-dir proxy/ --gpu --merge --fps 15
+```
 
 ---
 
