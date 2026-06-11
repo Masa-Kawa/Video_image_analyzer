@@ -9,6 +9,7 @@ TestClient で各エンドポイントの正常系・異常系を検証する:
   - build_state  : 動画不在(FileNotFoundError) / 未登録術式(KeyError)
 """
 
+import datetime
 import json
 import re
 import shutil
@@ -44,12 +45,17 @@ def _token(client: TestClient) -> str:
 
 
 class _TmpCase(unittest.TestCase):
-    """self.tmp の一時ディレクトリを tearDown で必ず後始末する基底クラス。
+    """一時ディレクトリと TestClient を tearDown で必ず後始末する基底クラス。
 
-    テスト失敗/例外時も含めて削除されるため、一時ファイルがリークしない。
+    テスト失敗/例外時も含めて、一時ファイルと HTTP 接続リソースを解放する。
     """
 
     def tearDown(self):
+        # 生成した TestClient を閉じて接続プール等を解放
+        for attr in ("client", "confined"):
+            c = getattr(self, attr, None)
+            if c is not None:
+                c.close()
         tmp = getattr(self, "tmp", None)
         if tmp:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -80,8 +86,8 @@ class TestIndexAndSession(_TmpCase):
             {"id": "s1", "phase_name": "Preparation",
              "start_sec": 0.0, "end_sec": 5.0},
         ]
-        client = TestClient(create_app(state))
-        body = client.get("/api/session").json()
+        with TestClient(create_app(state)) as client:
+            body = client.get("/api/session").json()
         self.assertEqual(len(body["segments"]), 1)
         self.assertEqual(body["segments"][0]["id"], "s1")
 
@@ -145,7 +151,12 @@ class TestSave(_TmpCase):
         entry = json.loads(lines[0])
         self.assertEqual(entry["n_changes"], 1)
         self.assertEqual(entry["changes"][0]["change"], "inserted")
-        self.assertIn("timestamp", entry)
+        # timestamp は str かつ UTC(+00:00) の ISO8601（秒精度）であること
+        ts = entry["timestamp"]
+        self.assertIsInstance(ts, str)
+        self.assertRegex(ts, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$")
+        parsed = datetime.datetime.fromisoformat(ts)
+        self.assertEqual(parsed.utcoffset(), datetime.timedelta(0))
 
     def test_history_accumulates_per_save(self):
         token = _token(self.client)
@@ -198,6 +209,23 @@ class TestSave(_TmpCase):
         self.assertEqual(body["limit"], 2)
         self.assertEqual(len(body["entries"]), 2)  # 最新2件のみ
 
+    def test_history_limit_clamped(self):
+        token = _token(self.client)
+        self.client.post("/api/save", json={"segments": [self.seg]},
+                         headers={"X-CSRF-Token": token})  # 履歴1件
+        # 入力 limit → サーバの丸め後 max(1, min(limit, 1000))
+        for req_limit, expected in {0: 1, -5: 1, 99999: 1000}.items():
+            r = self.client.get(f"/api/history?limit={req_limit}",
+                                headers={"X-CSRF-Token": token})
+            self.assertEqual(r.status_code, 200, f"limit={req_limit}")
+            self.assertEqual(r.json()["limit"], expected, f"limit={req_limit}")
+
+    def test_history_limit_non_integer_422(self):
+        token = _token(self.client)
+        r = self.client.get("/api/history?limit=abc",
+                            headers={"X-CSRF-Token": token})
+        self.assertEqual(r.status_code, 422)  # int 以外はバリデーションエラー
+
 
 class TestOpen(_TmpCase):
     def setUp(self):
@@ -248,15 +276,15 @@ class TestMediaVideo(_TmpCase):
         self.tmp = Path(tempfile.mkdtemp())
 
     def test_media_video_404_when_proxy_missing(self):
-        client = TestClient(create_app(_state(self.tmp)))  # proxy 未作成
-        r = client.get("/media/video")
+        with TestClient(create_app(_state(self.tmp))) as client:  # proxy 未作成
+            r = client.get("/media/video")
         self.assertEqual(r.status_code, 404)
 
     def test_media_video_200_with_mime_when_present(self):
         proxy = self.tmp / "proxy.mp4"
         proxy.write_bytes(b"\x00\x00\x00\x18ftypmp42")  # ダミーの中身
-        client = TestClient(create_app(_state(self.tmp, proxy=proxy)))
-        r = client.get("/media/video")
+        with TestClient(create_app(_state(self.tmp, proxy=proxy))) as client:
+            r = client.get("/media/video")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.headers["content-type"], "video/mp4")
 

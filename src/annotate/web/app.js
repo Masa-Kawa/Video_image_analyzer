@@ -412,8 +412,10 @@ function summarizeChanges(changes) {
   // プロトタイプ汚染を避けるため null プロトタイプの辞書で集計する。
   const c = Object.create(null);
   CHANGE_KINDS.forEach(k => { c[k] = 0; });
+  // hasOwnProperty.call は ES2022 の Object.hasOwn 非対応環境でも動く。
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
   (changes || []).forEach(p => {
-    if (Object.hasOwn(c, p.change)) c[p.change]++;
+    if (has(c, p.change)) c[p.change]++;
   });
   return c;
 }
@@ -423,9 +425,15 @@ async function loadHistory() {
   try {
     // /api/history は CSRF トークン必須（動画名・差分などを含むため）
     const r = await fetch(API.HISTORY, { headers: { "X-CSRF-Token": CSRF_TOKEN } });
-    if (!r.ok) { return; }
+    if (!r.ok) {
+      setStatus(`履歴の取得に失敗しました (HTTP ${r.status})`);
+      return;
+    }
     data = await r.json();
-  } catch (_) { return; }
+  } catch (err) {
+    setStatus("履歴の取得エラー: " + (err && err.message ? err.message : err));
+    return;
+  }
   document.getElementById("history-file").textContent =
     `${data.history_file}（${data.entries.length} 回保存）`;
   const ol = document.getElementById("history-list");

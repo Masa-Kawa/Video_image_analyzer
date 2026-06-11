@@ -16,8 +16,9 @@ if ! command -v ruff >/dev/null 2>&1; then
   exit 0
 fi
 
-# ステージされた 追加/変更/コピー の .py のみ対象（削除・リネーム消失は除外）
-mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACM -- '*.py')
+# ステージされた 追加/変更/コピー/リネーム の .py を対象（削除のみ除外）。
+# R を含めないとリネームされたファイルが未チェックで通る恐れがある。
+mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACMR -- '*.py')
 
 files=()
 for f in "${staged[@]}"; do
