@@ -2,6 +2,14 @@
 
 本プロジェクトの主な変更を記録する。日付は `YYYY-MM-DD`（JST）。
 
+## 2026-06-11 (4)
+
+### 開発基盤
+- **push前の安全検査フックを追加**: `scripts/git-hooks/pre-push` が、送信しようとするコミットを走査し、危険ファイル/データの混入を検出して push を中止する。検査ロジックは `scripts/safety-check.sh`（PR前に手動実行も可）。
+  - BLOCK: 動画/モデル/解析データ/アーカイブ/鍵・証明書/`.env`、`.gitignore`対象なのに追跡中、5MB超、APIキー/秘密鍵らしき文字列。
+  - WARN（許可）: 個人の絶対パス、パスワード/キーらしき代入。
+  - `scripts/install-hooks.sh` を pre-commit と pre-push の両方を入れるよう更新。回避は `git push --no-verify`。
+
 ## 2026-06-11 (3)
 
 ### ドキュメント

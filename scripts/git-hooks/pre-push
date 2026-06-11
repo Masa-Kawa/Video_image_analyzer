@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+#
+# push 前フック: 送ろうとしているコミットに危険なファイル/データが無いか検査する。
+#
+# git は標準入力に「<ローカルref> <ローカルsha> <リモートref> <リモートsha>」を1行ずつ渡す。
+# 各 push 対象について、新規に送るコミット範囲を求めて scripts/safety-check.sh に渡す。
+#
+# 回避（緊急時）: git push --no-verify
+#
+set -uo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+checker="$root/scripts/safety-check.sh"
+
+if [ ! -f "$checker" ]; then
+  echo "⚠ safety-check.sh が見つからないため push 前検査をスキップしました" >&2
+  exit 0
+fi
+
+zero="0000000000000000000000000000000000000000"
+status=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # ブランチ削除の push（ローカルsha がゼロ）は検査不要
+  [ "$local_sha" = "$zero" ] && continue
+
+  if [ "$remote_sha" = "$zero" ]; then
+    # 新規ブランチ: どのリモートにも無いコミットだけを対象にする
+    bash "$checker" "$local_sha" --not --remotes || status=1
+  else
+    # 既存ブランチ: リモート先端から今回の先端までの差分
+    bash "$checker" "$remote_sha..$local_sha" || status=1
+  fi
+done
+
+exit "$status"

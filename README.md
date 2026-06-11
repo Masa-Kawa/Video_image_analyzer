@@ -248,23 +248,46 @@ UI操作・出力形式・APIの詳細は [`docs/annotation_editor.md`](docs/ann
 uv run python -m pytest tests/ -v
 ```
 
-## コミット前チェック（lint）
+## Git フック（lint と push前の安全検査）
 
-コミット時に、変更した Python ファイルへ自動で [ruff](https://docs.astral.sh/ruff/) の lint
-（未使用 import・未定義名・構文/論理エラー等の検出）を走らせるフックを用意しています。
-自動修正できた分は再ステージされ、直せない問題が残るとコミットが中断されます。
-整形（`ruff format`）は既存スタイルを大きく変えるため**含めていません**（lint のみ）。
-
-ネイティブ Git フックはクローン後に共有されないため、各自で一度だけ有効化します:
+2種類のフックを用意しています。ネイティブ Git フックはクローン後に共有されないため、
+各自で一度だけ有効化します:
 
 ```bash
-uv sync --group dev          # ruff を含む開発依存を導入
-bash scripts/install-hooks.sh  # .git/hooks/pre-commit を有効化
+uv sync --group dev            # ruff を含む開発依存を導入
+bash scripts/install-hooks.sh  # pre-commit と pre-push を有効化
 ```
 
-- フック本体: `scripts/git-hooks/pre-commit`（リポジトリ管理下）
-- 手動実行: `ruff check src/ tests/`
-- 一時的に回避: `git commit --no-verify`
+### pre-commit（lint）
+
+コミット時に、変更した Python ファイルへ自動で [ruff](https://docs.astral.sh/ruff/) の lint
+（未使用 import・未定義名・構文/論理エラー等の検出）を走らせます。自動修正できた分は再ステージされ、
+直せない問題が残るとコミットが中断されます。整形（`ruff format`）は既存スタイルを大きく変えるため
+**含めていません**（lint のみ）。
+
+- フック本体: `scripts/git-hooks/pre-commit`
+- 手動実行: `ruff check src/ tests/` ／ 一時回避: `git commit --no-verify`
+
+### pre-push（危険ファイル/データの混入チェック）
+
+push 直前に、送ろうとしているコミットを走査し、**公開してはいけないものが混ざっていないか**を検査します。
+1件でも該当（BLOCK）すれば push を中止します。**PR を出す前の最終関門**としても手動で実行できます。
+
+検出対象（BLOCK）:
+- 動画(`*.mp4` 等)・モデル/重み(`*.pth/*.pt/*.onnx` 等)・解析データ(`*.csv/*.srt/*.jsonl`)・アーカイブ・鍵/証明書(`*.pem/*.key`)・`.env`
+- `.gitignore` 対象なのに追跡されているファイル
+- 5MB を超える大容量ファイル
+- 中身に含まれる API キー/秘密鍵らしき文字列（AWS/GitHub/Google/Slack/OpenAI 形式・PEM 秘密鍵）
+
+WARN（表示のみ・push は許可）: 個人の絶対パス `/home/<user>/`、パスワード/キーらしき代入。
+
+```bash
+bash scripts/safety-check.sh          # 未pushコミットを手動検査（PR前の確認に）
+bash scripts/safety-check.sh main..HEAD  # 範囲指定
+```
+
+- フック本体: `scripts/git-hooks/pre-push` ／ 検査ロジック: `scripts/safety-check.sh`
+- 一時回避（誤検知時）: `git push --no-verify`
 
 ## ライセンス
 

@@ -8,12 +8,21 @@
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
-src="$root/scripts/git-hooks/pre-commit"
-dst="$root/.git/hooks/pre-commit"
 
-chmod +x "$src"
-# .git/hooks/pre-commit から見た相対パスで管理下スクリプトへシンボリックリンク
-ln -sf ../../scripts/git-hooks/pre-commit "$dst"
+install_hook() {
+  local name="$1"
+  local src="$root/scripts/git-hooks/$name"
+  local dst="$root/.git/hooks/$name"
+  chmod +x "$src"
+  # .git/hooks/<name> から見た相対パスで管理下スクリプトへシンボリックリンク
+  ln -sf "../../scripts/git-hooks/$name" "$dst"
+  echo "✓ $name フックを有効化: $dst -> scripts/git-hooks/$name"
+}
 
-echo "✓ pre-commit フックを有効化しました: $dst -> scripts/git-hooks/pre-commit"
-echo "  （ステージした .py に ruff lint を実行します。回避は git commit --no-verify）"
+chmod +x "$root/scripts/safety-check.sh"
+install_hook pre-commit
+install_hook pre-push
+
+echo ""
+echo "  pre-commit : ステージした .py に ruff lint（回避: git commit --no-verify）"
+echo "  pre-push   : 送信前に危険ファイル/データを検査（回避: git push --no-verify）"
